@@ -1,0 +1,1332 @@
+from flask_sqlalchemy import SQLAlchemy
+from datetime import datetime, date
+db = SQLAlchemy()
+
+# ── KULLANICILAR ──────────────────────────────────────────────────────
+
+# ══════════════════════════════════════════════════════════════════════
+#  SAYISAL TİPLER  (N1)
+# ══════════════════════════════════════════════════════════════════════
+# Veritabaninda NUMERIC, Python'da float.
+#
+# NEDEN BOYLE: tam Decimal gecisi Python tarafinda da Decimal dondurur
+# ve `Decimal * float` TypeError verir. Kodda 92 float(), 116 sum(),
+# 19 round() cagrisi var — hepsi kirilma adayi. Olculen kazanc ise
+# 10.000 kalemde 0,000000008 TL (sistem zaten q3() ile yuvarliyor).
+#
+# TypeDecorator ile depolama ve SQL tarafi toplama KESIN olur,
+# Python tarafi degismez. Yuksek fayda / sifir risk.
+class Para(db.TypeDecorator):
+    """Parasal deger. NUMERIC(18,2) — Python'da float.
+
+    ON1 — ESKIDEN 4 HANEYDI. Resmi muhasebe programi 2 haneyle
+    calisiyor; fazla haneler her satirda kurus altinda sapma birakiyor
+    ve 58 kalemlik bir belgede iki sistemin toplami tutmuyordu.
+    Doviz KURU (Kur, 6 hane) ve oranlar DEGISMEDI — onlar carpan.
+    """
+    impl = db.Numeric
+    cache_ok = True
+
+    def __init__(self, precision=18, scale=2, **kw):
+        super().__init__(precision=precision, scale=scale, **kw)
+
+    def process_result_value(self, value, dialect):
+        return None if value is None else float(value)
+
+
+class Kur(db.TypeDecorator):
+    """Doviz kuru. NUMERIC(18,6) — carpan oldugu icin fazla hane."""
+    impl = db.Numeric
+    cache_ok = True
+
+    def __init__(self, precision=18, scale=6, **kw):
+        super().__init__(precision=precision, scale=scale, **kw)
+
+    def process_result_value(self, value, dialect):
+        return None if value is None else float(value)
+
+
+class Olcu(db.TypeDecorator):
+    """Olcu/miktar. NUMERIC(18,2) — m2, m3, kg, adet, oran.  (ON1: 3 → 2)"""
+    impl = db.Numeric
+    cache_ok = True
+
+    def __init__(self, precision=18, scale=2, **kw):
+        super().__init__(precision=precision, scale=2, **kw)
+
+    def process_result_value(self, value, dialect):
+        return None if value is None else float(value)
+
+
+class Kullanici(db.Model):
+    __tablename__ = 'kullanicilar'
+    id       = db.Column(db.Integer, primary_key=True)
+    ad       = db.Column(db.String(50), unique=True, nullable=False)
+    sifre    = db.Column(db.String(255), nullable=False)
+    rol      = db.Column(db.String(20), default='SATIS')
+    aktif    = db.Column(db.Boolean, default=True)
+    yetkiler = db.Column(db.Text, default='{}')
+    # ── CARİ KAPSAMI (KP1) ──
+    # YETKİ ile KAPSAM ayrı eksenler:
+    #   yetkiler → NE yapabilir (fatura kes, tahsilat gir…)
+    #   kapsam   → HANGİ carilerde yapabilir
+    #
+    # Eskiden ikisi tek eksendeydi: ADMIN her şeyi görürdü, ADMIN
+    # olmayan yalnızca kendine atananları. Muhasebeci tüm carilerde
+    # işlem yapmak için ADMIN olmak zorundaydı — bu da ayarlar ve
+    # kullanıcı yönetimini açıyordu.
+    #
+    #   'atanan' → sorumlusu olduğu + ortak cariler  (satış)
+    #   'tumu'   → bütün cariler                     (muhasebe, yönetim)
+    #
+    # Kapsam YETKİYİ GENİŞLETMEZ: 'tumu' olan biri tüm carileri
+    # görür ama yalnızca yetkisi olan işlemleri yapar.
+    #
+    # Varsayılan 'atanan' — güvenli taraf. Boş/NULL da 'atanan'
+    # sayılır; eksik değer "herkes her şeyi görsün" anlamına
+    # gelmemeli.
+    cari_kapsam = db.Column(db.String(10), default='atanan')
+    olusturma = db.Column(db.DateTime, default=datetime.now)
+
+class Bildirim(db.Model):
+    """Sistem içi bildirim  ·  BL1
+
+    ── TASARIM: OLAY BAŞINA TEK KAYIT ──
+    Kullanıcı başına satır AÇMIYORUZ. Bir proforma onaya
+    gönderildiğinde tek bir bildirim doğar ve onay yetkisi olan
+    HERKESE görünür.
+
+    Yetkililerden biri onaylayınca bildirim KAPANIR (`kapandi`).
+    Diğerleri sonradan giriş yapsa bile artık görmez — iş bitmiştir,
+    boşuna bildirim gitmemeli.
+
+    Kullanıcı başına satır açsaydık: onaylayanın satırını kapatmak
+    diğerlerininkini kapatmaz, herkesin ayrı ayrı temizlemesi
+    gerekirdi ve "iş bitti mi" sorusunun tek cevabı olmazdı.
+    """
+    __tablename__ = 'bildirimler'
+    id          = db.Column(db.Integer, primary_key=True)
+    # 'proforma_onay' — ileride başka türler eklenebilir
+    tip         = db.Column(db.String(30), nullable=False, index=True)
+    konu_tip    = db.Column(db.String(20))          # 'proforma'
+    konu_id     = db.Column(db.String(40), index=True)
+    baslik      = db.Column(db.String(160))
+    mesaj       = db.Column(db.Text)
+    hedef_yetki = db.Column(db.String(40))          # 'proforma_onay'
+    olusturan   = db.Column(db.String(50))
+    olusturma   = db.Column(db.DateTime, default=datetime.now, index=True)
+    # KAPANDI: iş yapıldı, kimseye gösterilmez
+    kapandi     = db.Column(db.Boolean, default=False, index=True)
+    kapatan     = db.Column(db.String(50))
+    kapanma     = db.Column(db.DateTime)
+
+
+# ── STOK ─────────────────────────────────────────────────────────────
+# UZ1: cari ünvanı taşıyan alanlar Cari.unvan (200) ile hizalandı.
+# Üretimde 102 karakterlik bir ünvan varchar(100)'e sığmayıp toplu
+# içe aktarmayı tümüyle engellemişti. Ünvanı kesmek belgede yanlış
+# firma adı yazdırırdı — alan genişletildi.
+class BlokStok(db.Model):
+    __tablename__ = 'blok_stok'
+    id              = db.Column(db.String(20), primary_key=True)
+    giris_tarihi    = db.Column(db.Date, default=date.today)
+    uretici         = db.Column(db.String(200))
+    # SK1: TEDARIKCI KIMLIK BAGI.
+    # `uretici` bir AD; ad degisirse ya da iki cari benzer adliysa
+    # bag kopar. Uretimde olculdu: stok silinirken bagli fatura
+    # ADLA eslestirilmek zorunda kalindi (SF2).
+    # `uretici` GORUNTU icin kaliyor, cari_id BAG icin.
+    cari_id         = db.Column(db.String(20), index=True)
+    cins            = db.Column(db.String(100))
+    mense           = db.Column(db.String(50), default='TURKIYE')   # MS1: malın menşei (etiket, CI)
+    blok_no         = db.Column(db.String(50))
+    boy             = db.Column(Olcu)
+    yukseklik       = db.Column(Olcu)
+    en              = db.Column(Olcu)
+    hacim_m3        = db.Column(Olcu)
+    tonaj           = db.Column(Olcu)
+    alis_fiyati     = db.Column(Para)
+    alis_fiyat_birim = db.Column(db.String(5), default='ton')
+    kdv_dahil_mi    = db.Column(db.Boolean, default=False)
+    kdv_oran        = db.Column(Olcu, default=0)
+    alis_tipi       = db.Column(db.String(20), default='yurtici_kdvli')
+    kdv_tutar       = db.Column(Para, default=0)
+    matrah          = db.Column(Para, default=0)
+    doviz           = db.Column(db.String(5), default='USD')
+    konum           = db.Column(db.String(100))
+    durum           = db.Column(db.String(20), default='Serbest')
+    aciklama        = db.Column(db.Text)
+    kullanici       = db.Column(db.String(50))
+    guncelleme      = db.Column(db.DateTime, default=datetime.now)
+    nakliye_dahil   = db.Column(db.Boolean, default=False)
+    fatura_no       = db.Column(db.String(50))
+    alis_tarihi     = db.Column(db.Date)               # Fatura/borç tarihi (giris_tarihi'nden farklı olabilir)
+    fatura_durumu   = db.Column(db.String(20), default='faturali')  # faturali / faturasiz / mal_bekliyor
+
+class PlakaStok(db.Model):
+    __tablename__ = 'plaka_stok'
+    id              = db.Column(db.String(20), primary_key=True)
+    giris_tarihi    = db.Column(db.Date, default=date.today)
+    uretici         = db.Column(db.String(200))
+    # SK1: TEDARIKCI KIMLIK BAGI.
+    # `uretici` bir AD; ad degisirse ya da iki cari benzer adliysa
+    # bag kopar. Uretimde olculdu: stok silinirken bagli fatura
+    # ADLA eslestirilmek zorunda kalindi (SF2).
+    # `uretici` GORUNTU icin kaliyor, cari_id BAG icin.
+    cari_id         = db.Column(db.String(20), index=True)
+    cins            = db.Column(db.String(100))
+    blok_no         = db.Column(db.String(50))
+    boy             = db.Column(Olcu)
+    yukseklik       = db.Column(Olcu)
+    kalinlik        = db.Column(Olcu)
+    m2_kg           = db.Column(Olcu)
+    ozellik         = db.Column(db.String(50))
+    mense           = db.Column(db.String(50), default='TURKIYE')   # MS1: malın menşei (etiket, CI)
+    metraj_m2       = db.Column(Olcu)
+    metraj_sqft     = db.Column(Olcu)
+    slab_no         = db.Column(db.Integer)
+    alis_fiyati     = db.Column(Para)
+    alis_fiyat_birim = db.Column(db.String(5), default='m2')
+    kdv_dahil_mi    = db.Column(db.Boolean, default=False)
+    kdv_oran        = db.Column(Olcu, default=0)
+    alis_tipi       = db.Column(db.String(20), default='yurtici_kdvli')
+    kdv_tutar       = db.Column(Para, default=0)
+    matrah          = db.Column(Para, default=0)
+    doviz           = db.Column(db.String(5), default='USD')
+    konum           = db.Column(db.String(100))
+    durum           = db.Column(db.String(20), default='Serbest')
+    aciklama        = db.Column(db.Text)
+    kullanici       = db.Column(db.String(50))
+    guncelleme      = db.Column(db.DateTime, default=datetime.now)
+    nakliye_dahil   = db.Column(db.Boolean, default=False)
+    fatura_no       = db.Column(db.String(50))
+    alis_tarihi     = db.Column(db.Date)
+    fatura_durumu   = db.Column(db.String(20), default='faturali')
+
+class EbatliStok(db.Model):
+    __tablename__ = 'ebatli_stok'
+    id              = db.Column(db.String(20), primary_key=True)
+    giris_tarihi    = db.Column(db.Date, default=date.today)
+    uretici         = db.Column(db.String(200))
+    # SK1: TEDARIKCI KIMLIK BAGI.
+    # `uretici` bir AD; ad degisirse ya da iki cari benzer adliysa
+    # bag kopar. Uretimde olculdu: stok silinirken bagli fatura
+    # ADLA eslestirilmek zorunda kalindi (SF2).
+    # `uretici` GORUNTU icin kaliyor, cari_id BAG icin.
+    cari_id         = db.Column(db.String(20), index=True)
+    cins            = db.Column(db.String(100))
+    kasa_no         = db.Column(db.String(50))
+    boy             = db.Column(Olcu)
+    yukseklik       = db.Column(Olcu)
+    kalinlik        = db.Column(Olcu)
+    m2_kg           = db.Column(Olcu)
+    ozellik         = db.Column(db.String(50))
+    mense           = db.Column(db.String(50), default='TURKIYE')   # MS1: malın menşei (etiket, CI)
+    kasa_ici_adet   = db.Column(db.Integer)
+    metraj_m2       = db.Column(Olcu)
+    metraj_sqft     = db.Column(Olcu)
+    alis_fiyati     = db.Column(Para)
+    alis_fiyat_birim = db.Column(db.String(5), default='m2')
+    kdv_dahil_mi    = db.Column(db.Boolean, default=False)
+    kdv_oran        = db.Column(Olcu, default=0)
+    alis_tipi       = db.Column(db.String(20), default='yurtici_kdvli')
+    kdv_tutar       = db.Column(Para, default=0)
+    matrah          = db.Column(Para, default=0)
+    doviz           = db.Column(db.String(5), default='USD')
+    konum           = db.Column(db.String(100))
+    durum           = db.Column(db.String(20), default='Serbest')
+    aciklama        = db.Column(db.Text)
+    kullanici       = db.Column(db.String(50))
+    guncelleme      = db.Column(db.DateTime, default=datetime.now)
+    nakliye_dahil   = db.Column(db.Boolean, default=False)
+    bas_kasa_no     = db.Column(db.String(50))
+    kasa_adedi      = db.Column(db.Integer, default=1)
+    fatura_no       = db.Column(db.String(50))
+    alis_tarihi     = db.Column(db.Date)
+    fatura_durumu   = db.Column(db.String(20), default='faturali')
+
+class StokCikis(db.Model):
+    __tablename__ = 'stok_cikis'
+    id              = db.Column(db.String(20), primary_key=True)
+    cikis_tarihi    = db.Column(db.Date, default=date.today)
+    stok_tip        = db.Column(db.String(10))
+    stok_id         = db.Column(db.String(20))
+    uretici         = db.Column(db.String(200))
+    cins            = db.Column(db.String(100))
+    ozellik         = db.Column(db.String(50))
+    olcu_metraj     = db.Column(db.String(50))
+    musteri         = db.Column(db.String(200))
+    siparis_id      = db.Column(db.String(20))
+    rezervasyon_id  = db.Column(db.String(20))
+    alis_fiyati     = db.Column(Para)
+    satis_fiyati    = db.Column(Para)
+    doviz           = db.Column(db.String(5))
+    cikis_nedeni    = db.Column(db.String(50))
+    kullanici       = db.Column(db.String(50))
+    guncelleme      = db.Column(db.DateTime, default=datetime.now)
+
+# ═══════════════════════════════════════════════════════════════════════
+# ── SİPARİŞ (PARENT) ─────────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════
+# FAZ 16 DEGISIKLIK NOTLARI:
+# KALDIRILANLAR (artik SiparisKalem'de):
+#   - urun_tip, cins, ozellik, olcu, satis_fiyati, miktar, birim
+# EKLENENLER:
+#   - toplam_tutar (kalemlerin toplami, kalem kayit/silme'de senkronize)
+#   - kalemler relationship (1-N)
+# ═══════════════════════════════════════════════════════════════════════
+class Siparis(db.Model):
+    __tablename__ = 'siparis_kayit'
+    id              = db.Column(db.String(20), primary_key=True)
+    siparis_tarihi  = db.Column(db.Date, default=date.today)
+    musteri         = db.Column(db.String(200))
+    # Musteri KIMLIGI (CRM-A2). CRM-A'da atlanmisti: taramada
+    # `acente_cari_id` gorulup 'cari_id var' sanilmisti. O alan
+    # siparisin ACENTESINI gosterir, musteriyi degil.
+    cari_id         = db.Column(db.String(20), index=True)
+
+    # Sipariş geneli para birimi (kalemler bunu inherit eder, override edebilir)
+    doviz           = db.Column(db.String(5), default='USD')
+
+    # Ödeme & Teslim & Termin
+    odeme_sekli     = db.Column(db.String(50))
+    teslim_sekli    = db.Column(db.String(50))
+    termin          = db.Column(db.Date)
+    durum           = db.Column(db.String(30), default='Teklif Asam.')
+    aciklama        = db.Column(db.Text)
+
+    # YENİ: Toplam (kalemlerin sum'i, otomatik güncellenir)
+    toplam_tutar    = db.Column(Para, default=0)
+
+    # Vergi (sipariş geneli)
+    satis_tipi      = db.Column(db.String(30), default='ihracat')
+    kdv_oran        = db.Column(Olcu, default=0)
+    kdv_tutar       = db.Column(Para, default=0)
+    tevkifat_oran   = db.Column(db.String(10), default='')
+    tevkifat_tutar  = db.Column(Para, default=0)
+
+    # Acente / Komisyon
+    acente_cari_id  = db.Column(db.String(20))
+    komisyon_yontem = db.Column(db.String(20))
+    komisyon_deger  = db.Column(Para, default=0)
+    komisyon_tutar  = db.Column(Para, default=0)
+    komisyon_doviz  = db.Column(db.String(5))
+    komisyon_aciklama = db.Column(db.String(200))
+
+    # İz
+    kullanici       = db.Column(db.String(50))
+    guncelleme      = db.Column(db.DateTime, default=datetime.now)
+
+    # İlişkiler
+    kalemler        = db.relationship('SiparisKalem', backref='siparis',
+                                      lazy=True, cascade='all, delete-orphan',
+                                      order_by='SiparisKalem.sira')
+    rezervasyonlar  = db.relationship('Rezervasyon', backref='siparis', lazy=True)
+    maliyetler      = db.relationship('Maliyet', backref='siparis', lazy=True,
+                                       foreign_keys='Maliyet.baglanti_id',
+                                       primaryjoin='Maliyet.baglanti_id==Siparis.id')
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# ── SİPARİŞ KALEMLERİ (YENİ) ─────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════
+# Bir siparişte birden fazla ürün kalemi olur. ProformaKalem yapısı
+# referans alınmıştır, ama siparişe özgü sadeleştirilmiştir.
+#
+# TÜR-SPESİFİK ALAN KULLANIMI:
+#   BLOK   : boy + yukseklik + en + hacim_m3 + tonaj   (birim: m3 veya ton)
+#   PLAKA  : boy + yukseklik + kalinlik + m2_toplam    (birim: m2 veya sqft)
+#   EBATLI : boy + yukseklik + kalinlik + adet + kasa_ici_adet + m2_toplam
+#                                                       (birim: m2, sqft veya adet)
+# ═══════════════════════════════════════════════════════════════════════
+class SiparisKalem(db.Model):
+    __tablename__ = 'siparis_kalem'
+    id              = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    siparis_id      = db.Column(db.String(20), db.ForeignKey('siparis_kayit.id'),
+                                nullable=False, index=True)
+    sira            = db.Column(db.Integer, default=1)   # 1, 2, 3, ...
+
+    # ÜRÜN BİLGİLERİ
+    urun_tip        = db.Column(db.String(20), nullable=False)  # BLOK / PLAKA / EBATLI
+    cins            = db.Column(db.String(100))
+    ozellik         = db.Column(db.String(50))                  # Yüzey: polished, honed, leather...
+    aciklama        = db.Column(db.String(300))                 # serbest ek not (kalem için)
+
+    # ÖLÇÜLER (cm)
+    boy             = db.Column(Olcu)        # genelde "en" boyutu
+    yukseklik       = db.Column(Olcu)        # genelde "boy" boyutu
+    en              = db.Column(Olcu)        # BLOK için 3. boyut
+    kalinlik        = db.Column(Olcu)        # PLAKA / EBATLI
+    olcu            = db.Column(db.String(100))  # otomatik string: "60x60x2cm"
+
+    # ADET / MİKTAR
+    adet            = db.Column(db.Integer, default=1)   # Plaka sayısı (PLAKA) veya Kasa sayısı (EBATLI)
+    kasa_ici_adet   = db.Column(db.Integer, default=1)   # EBATLI: 1 kasada kaç parça
+    miktar          = db.Column(Olcu)                # Kullanıcının girdiği toplam (m2, m3, ton, sqft, adet)
+    birim           = db.Column(db.String(20))   # W1: 10 -> 20           # m2 / m3 / sqft / ton / adet
+
+    # OTOMATİK HESAPLAMALAR
+    m2_toplam       = db.Column(Olcu, default=0)     # (boy*yukseklik/10000) * adet * kasa_ici_adet
+    m3_toplam       = db.Column(Olcu, default=0)     # BLOK için (boy*yukseklik*en/1000000) * adet
+    sqft_toplam     = db.Column(Olcu, default=0)     # m2 * 10.7639
+    kg_toplam       = db.Column(Olcu, default=0)     # opsiyonel (m²*m2_kg gibi)
+
+    # FİYAT
+    birim_fiyat     = db.Column(Para)         # miktar başına fiyat (m2'de USD/m²)
+    toplam_fiyat    = db.Column(Para)         # birim_fiyat * miktar
+    doviz           = db.Column(db.String(5), default='USD')  # sipariş dövizinden inherit
+
+    # STOK BAĞLANTISI (Çoklu destek)
+    stoktan_geldi   = db.Column(db.Boolean, default=False)
+    stok_ids_json   = db.Column(db.Text)  # JSON array: ["PLK-001","PLK-002"]
+    # (Tek alanda saklanır, rezervasyon kayıtları her stok için ayrı oluşur)
+
+    # İz
+    notlar          = db.Column(db.Text)
+    olusturma       = db.Column(db.DateTime, default=datetime.now)
+    guncelleme      = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
+
+
+# ── REZERVASYON ───────────────────────────────────────────────────────
+# FAZ 16: siparis_kalem_id eklendi (hangi kaleme bağlı olduğu)
+class Rezervasyon(db.Model):
+    __tablename__ = 'rezervasyon'
+    id              = db.Column(db.String(20), primary_key=True)
+    musteri         = db.Column(db.String(200))
+    # Musteri KIMLIGI. Onceden bag yalnizca `musteri` metniydi;
+    # unvan duzenlenince gecmis koptugu icin eklendi (CRM-A).
+    cari_id         = db.Column(db.String(20), index=True)
+    siparis_id      = db.Column(db.String(20), db.ForeignKey('siparis_kayit.id'), nullable=True)
+    siparis_kalem_id = db.Column(db.Integer, db.ForeignKey('siparis_kalem.id'), nullable=True)  # YENİ
+    proforma_id     = db.Column(db.String(20), db.ForeignKey('proforma.id'), nullable=True)
+    stok_tip        = db.Column(db.String(10))
+    cins            = db.Column(db.String(100))
+    ozellik         = db.Column(db.String(50))
+    stok_id         = db.Column(db.String(20))
+    miktar          = db.Column(Olcu)
+    aciklama        = db.Column(db.Text)
+    rez_tip         = db.Column(db.String(50))
+    kullanici       = db.Column(db.String(50))
+    olusturma       = db.Column(db.DateTime, default=datetime.now)
+    bitis_tarihi    = db.Column(db.Date)
+    iptal_nedeni    = db.Column(db.String(200))
+    iptal_tarihi    = db.Column(db.DateTime)
+    iptal_eden      = db.Column(db.String(80))
+
+# ── CARİ ──────────────────────────────────────────────────────────────
+class Cari(db.Model):
+    __tablename__ = 'cariler'
+    id              = db.Column(db.String(20), primary_key=True)
+    unvan           = db.Column(db.String(200), nullable=False)
+    # R1: 30 -> 120. Coklu rol virgulle saklaniyor; dort rol
+    # birden 32 karakter eder ve 30'a SIGMAZ (500 hatasi).
+    cari_tip        = db.Column(db.String(120))
+    vergi_dairesi   = db.Column(db.String(100))
+    vergi_no        = db.Column(db.String(20))
+    para_birimi     = db.Column(db.String(5), default='USD')
+    yetkili         = db.Column(db.String(100))
+    telefon         = db.Column(db.String(30))
+    email           = db.Column(db.String(100))
+    adres           = db.Column(db.Text)
+    iban            = db.Column(db.String(50))
+    ulke            = db.Column(db.String(80))
+    risk_limiti     = db.Column(Para)
+    uretici_kisaltma = db.Column(db.String(5))
+    urun_tedarikcisi = db.Column(db.Boolean, default=False)
+    aciklama        = db.Column(db.Text)
+    # Standart ödeme vadesi (gün). Fatura kesilirken vade_tarihi bundan
+    # hesaplanır; yaşlandırma raporu da bu bilgiden beslenir. (F2-2)
+    odeme_vadesi_gun = db.Column(db.Integer)
+    # ── CRM: sahiplik ve gorunurluk ──
+    # sorumlu: Kullanici.ad. O alan BENZERSIZ ve degistirilemiyor
+    # (guncelleme ucu yazmiyor), bu yuzden anahtar olarak guvenli.
+    sorumlu         = db.Column(db.String(50), index=True)
+    # 'kapali' (varsayilan) | 'ortak'
+    # Varsayilan KAPALI: isaretlemeyi unutan biri musteriyi gizli
+    # birakir. Tersi olsaydi gizli kalmasi gereken musteri sessizce
+    # herkese acilirdi — sessiz sizinti, gurultulu arizadan kotudur.
+    gorunurluk      = db.Column(db.String(10), default='kapali', index=True)
+    olusturma       = db.Column(db.DateTime, default=datetime.now)
+    hareketler      = db.relationship('CariHareket', backref='cari_hesap',
+                                      lazy=True, cascade='all, delete-orphan')
+
+class CariHareket(db.Model):
+    __tablename__ = 'cari_hareket'
+    id              = db.Column(db.String(20), primary_key=True)
+    hareket_tarihi  = db.Column(db.Date, default=date.today)
+    cari_unvan      = db.Column(db.String(200))
+    cari_id         = db.Column(db.String(20), db.ForeignKey('cariler.id'), nullable=True)
+    islem_tip       = db.Column(db.String(50))
+    evrak_no        = db.Column(db.String(50))
+    aciklama        = db.Column(db.Text)
+    borc            = db.Column(Para, default=0)
+    alacak          = db.Column(Para, default=0)
+    # YAMA C1: fatura bazli gruplamada bu harekete kac stok kaleminin
+    # dahil oldugu. Stok silinince pay dusulur, bu sayac azalir; sifira
+    # inince hareket tamamen silinir.
+    kalem_sayisi    = db.Column(db.Integer, default=1)
+    doviz           = db.Column(db.String(5))
+    vade_tarihi     = db.Column(db.Date)
+    kur_uygulanan   = db.Column(Kur, default=0)
+    kur_kaynak      = db.Column(db.String(10), default='TCMB')
+    # SK1: kur ELLE girildiyse NEDEN girildigi. GIB ozelgesi sozlesme
+    # kurunun belgede belirtilmesini istiyor; ayrica alti ay sonra
+    # "bu fatura neden 52,00'den hesaplanmis?" sorusunun cevabi olmali.
+    # kur_kaynak='MANUEL' ise ZORUNLU (sunucuda dogrulanir).
+    kur_gerekce     = db.Column(db.String(200))
+    borc_try        = db.Column(Para, default=0)
+    alacak_try      = db.Column(Para, default=0)
+    kapatildi       = db.Column(db.Boolean, default=False)
+    kapanis_hareket_id = db.Column(db.String(20))
+    usd_kur         = db.Column(Kur)
+    eur_kur         = db.Column(Kur)
+    bakiye_try      = db.Column(Para)
+    bakiye_usd      = db.Column(Para)
+    bakiye_eur      = db.Column(Para)
+    siparis_id      = db.Column(db.String(20))
+    kaynak          = db.Column(db.String(30), default='manuel')
+    baglanti_tip    = db.Column(db.String(20))
+    baglanti_id     = db.Column(db.String(20))
+    kullanici       = db.Column(db.String(50))
+    guncelleme      = db.Column(db.DateTime, default=datetime.now)
+    # ── KDV (fatura nitelikli hareketlerde) ──
+    # Alış/Satış faturası gibi hareketlerde tutarın KDV ayrımı burada tutulur.
+    # borc/alacak her zaman GENEL TOPLAM (KDV dahil) tutardır; matrah + kdv_tutar
+    # onun bileşenleridir. Tahsilat/ödeme gibi hareketlerde bu alanlar 0 kalır.
+    kdv_dahil_mi    = db.Column(db.Boolean, default=False)
+    kdv_oran        = db.Column(Olcu, default=0)
+    kdv_tutar       = db.Column(Para, default=0)
+    matrah          = db.Column(Para, default=0)
+
+# ── FATURA ────────────────────────────────────────────────────────────
+class Fatura(db.Model):
+    __tablename__ = 'faturalar'
+    id              = db.Column(db.String(20), primary_key=True)
+    fatura_no       = db.Column(db.String(50))
+    fatura_tarihi   = db.Column(db.Date, default=date.today)
+    vade_tarihi     = db.Column(db.Date)
+    proforma_id     = db.Column(db.String(20))
+    siparis_id      = db.Column(db.String(20))
+    musteri         = db.Column(db.String(200))
+    # Musteri KIMLIGI. Onceden bag yalnizca `musteri` metniydi;
+    # unvan duzenlenince gecmis koptugu icin eklendi (CRM-A).
+    cari_id         = db.Column(db.String(20), index=True)
+    musteri_adres   = db.Column(db.Text)
+    musteri_ulke    = db.Column(db.String(80))
+    toplam          = db.Column(Para, default=0)
+    ara_toplam      = db.Column(Para, default=0)
+    kdv_oran        = db.Column(Olcu, default=0)
+    kdv_tutar       = db.Column(Para, default=0)
+    doviz           = db.Column(db.String(5), default='USD')
+    # FK2 — SOZLESME (elle girilen) KURU. Boşsa fatura tarihinin TCMB
+    # döviz alış kuru kullanılır. Doluysa kesimde ve cari hareketinde bu
+    # kur esas alınır (GİB özelgesi: sözleşmede kur kararlaştırılmışsa
+    # TL karşılığı o kurdan bulunur) ve hareket kur_kaynak='MANUEL' olur.
+    kur_ozel        = db.Column(Kur)
+    odeme_sekli     = db.Column(db.String(50))
+    teslim_sekli    = db.Column(db.String(50))
+    durum           = db.Column(db.String(30), default='Taslak')
+    aciklama        = db.Column(db.Text)
+    kalemler_json   = db.Column(db.Text)
+    fatura_tipi     = db.Column(db.String(20), default='stoklu')
+    yon             = db.Column(db.String(10), default='satis')
+    kur_farki_modu  = db.Column(db.String(10), default='gider')
+    cari_hareket_id = db.Column(db.String(20))
+    satis_tipi      = db.Column(db.String(30), default='ihracat')
+    tevkifat_oran   = db.Column(db.String(10), default='')
+    tevkifat_tutar  = db.Column(Para, default=0)
+    # ── e-FATURA / ETTN (F6) ──
+    # ETTN: GİB'in her e-faturaya verdiği UUID (8-4-4-4-12). Fatura
+    # numarasından farklıdır; iptal/itiraz/mutabakatta esas alınan
+    # kimliktir. İhracat faturaları GİB portalına "İHRACAT" senaryosuyla
+    # gider ve karşılığında bu numara döner. Saklanmazsa GİB kayıtlarıyla
+    # eşleştirme yapılamaz.
+    # Benzersizlik uygulama katmanında denetlenir (_ettn_mukerrer_mi);
+    # sema_denetim.py yalnızca ADD COLUMN yapar, UNIQUE index kuramaz.
+    ettn            = db.Column(db.String(36))   # küçük harfle saklanır
+    efatura_senaryo = db.Column(db.String(20))   # IHRACAT|TEMELFATURA|TICARIFATURA|EARSIVFATURA
+    efatura_durum   = db.Column(db.String(20))   # Gonderildi|Kabul|Red|Iptal
+    efatura_tarihi  = db.Column(db.Date)         # GİB'e gönderim/yanıt tarihi
+    # F7: bu fatura hangi KDV iade dönem dosyasına girdi (boşsa girmedi)
+    iade_dosya_id   = db.Column(db.String(20))
+    alis_maliyeti   = db.Column(Para, default=0)
+    maliyet_doviz   = db.Column(db.String(5), default='USD')
+    maliyet_kalemleri_json = db.Column(db.Text)
+    olusturma       = db.Column(db.DateTime, default=datetime.now)
+    kullanici       = db.Column(db.String(50))
+
+# ── MALİYET ───────────────────────────────────────────────────────────
+class Maliyet(db.Model):
+    __tablename__ = 'maliyetler'
+    id              = db.Column(db.String(20), primary_key=True)
+    maliyet_tarihi  = db.Column(db.Date, default=date.today)
+    maliyet_tip     = db.Column(db.String(50))
+    baglanti_tip    = db.Column(db.String(20))
+    baglanti_id     = db.Column(db.String(20))
+    tutar           = db.Column(Para)
+    doviz           = db.Column(db.String(5))
+    kur             = db.Column(Kur)
+    try_karsilik    = db.Column(Para)
+    usd_karsilik    = db.Column(Para)
+    eur_karsilik    = db.Column(Para)
+    fatura_no       = db.Column(db.String(50))
+    aciklama        = db.Column(db.Text)
+    kullanici       = db.Column(db.String(50))
+    guncelleme      = db.Column(db.DateTime, default=datetime.now)
+    grup_id         = db.Column(db.String(20), nullable=True)
+    toplam_miktar   = db.Column(Olcu, nullable=True)
+    birim_maliyet   = db.Column(Para, nullable=True)
+    aktif           = db.Column(db.Boolean, default=True, nullable=False)
+    donusum_id      = db.Column(db.String(20), nullable=True)
+    donusum_tarihi  = db.Column(db.Date, nullable=True)
+    # F7: bu 'Iade KDV' kalemi hangi iade dosyasına bağlandı
+    iade_dosya_id   = db.Column(db.String(20), nullable=True)
+    # Kayıt zamanı — aynı GÜN eklenen maliyetlerin listede kararlı sıralanması için.
+    # (maliyet_tarihi sadece tarih tutar; aynı tarihte sıra belirsiz kalıyordu.)
+    olusturma       = db.Column(db.DateTime, default=datetime.now)
+
+# ── SEVKİYAT ──────────────────────────────────────────────────────────
+class Sevkiyat(db.Model):
+    __tablename__ = 'sevkiyat_kayit'
+    id              = db.Column(db.String(20), primary_key=True)
+    sevk_tarihi     = db.Column(db.Date, default=date.today)
+    sevk_tip        = db.Column(db.String(30))
+    siparis_id      = db.Column(db.String(20), db.ForeignKey('siparis_kayit.id'), nullable=True)
+    siparis_li      = db.Column(db.String(15))
+    musteri         = db.Column(db.String(200))
+    # Musteri KIMLIGI. Onceden bag yalnizca `musteri` metniydi;
+    # unvan duzenlenince gecmis koptugu icin eklendi (CRM-A).
+    cari_id         = db.Column(db.String(20), index=True)
+    cikis_noktasi   = db.Column(db.String(100))
+    varis_noktasi   = db.Column(db.String(100))
+    tah_yukleme     = db.Column(db.Date)
+    tah_teslim      = db.Column(db.Date)
+    gercek_teslim   = db.Column(db.Date)
+    hazirlama_tarihi = db.Column(db.Date)
+    cikis_tarihi    = db.Column(db.Date)
+    gumruk_tarihi   = db.Column(db.Date)
+    teslim_tarihi   = db.Column(db.Date)
+    iptal_tarihi    = db.Column(db.Date)
+    durum           = db.Column(db.String(30), default='Hazirlaniyor')
+    nakliye_firma   = db.Column(db.String(100))
+    arac_plaka      = db.Column(db.String(20))
+    sofor           = db.Column(db.String(100))
+    konteyner_no    = db.Column(db.String(50))
+    doseme          = db.Column(db.String(50))
+    belge_no        = db.Column(db.String(50))
+    belge_tip       = db.Column(db.String(30))
+    aciklama        = db.Column(db.Text)
+    sofor_adi       = db.Column(db.String(100))
+    sofor_tc        = db.Column(db.String(20))
+
+    # ── DENİZYOLU KONTEYNER İHRACATI (F2-1) ──
+    # Karayolu için mevcut alanlar yeterliydi; konteyner yüklemesi ve
+    # gümrük dosyası için aşağıdakiler olmadan Excel'e çıkmak gerekiyordu.
+    muhur_no         = db.Column(db.String(50))   # konteyner mühür (seal) no
+    vgm              = db.Column(Olcu)        # doğrulanmış brüt ağırlık (kg)
+    booking_no       = db.Column(db.String(50))   # armatör rezervasyon no
+    bl_no            = db.Column(db.String(50))   # konşimento (B/L) no
+    gemi_adi         = db.Column(db.String(100))
+    sefer_no         = db.Column(db.String(50))
+    beyanname_no     = db.Column(db.String(50))   # gümrük tescil no
+    beyanname_tarihi = db.Column(db.Date)
+    navlun_tutar     = db.Column(Para)
+    navlun_doviz     = db.Column(db.String(5))
+
+    kullanici       = db.Column(db.String(50))
+    guncelleme      = db.Column(db.DateTime, default=datetime.now)
+
+# ── KUR ───────────────────────────────────────────────────────────────
+class DovizKur(db.Model):
+    __tablename__ = 'doviz_kur'
+    id          = db.Column(db.Integer, primary_key=True)
+    tarih       = db.Column(db.Date, default=date.today)
+    doviz       = db.Column(db.String(5))
+    alis        = db.Column(Kur)
+    satis       = db.Column(Kur)
+    # DIKKAT: `efektif` alani aslinda EFEKTIF SATIS'i tutuyor
+    # (BanknoteSelling). Adi yaniltici ama 32 yerde kullanildigi ve
+    # yeniden adlandirma gocu veri kaybi riski tasidigi icin
+    # degistirilmiyor.
+    efektif     = db.Column(Kur)
+    # EA1: efektif ALIS (BanknoteBuying) — TCMB veriyordu ama
+    # saklanmiyordu. Nakit doviz bozdurma kuru.
+    efektif_alis = db.Column(Kur)
+    kaynak      = db.Column(db.String(20), default='TCMB')
+
+# ── VERILER (lookup) ───────────────────────────────────────────────────
+class Veriler(db.Model):
+    __tablename__ = 'veriler'
+    id          = db.Column(db.Integer, primary_key=True)
+    kategori    = db.Column(db.String(30))
+    deger       = db.Column(db.String(200))
+    kisaltma    = db.Column(db.String(10))
+    ek_bilgi    = db.Column(db.String(200))
+    # Uzun içerikler (logo base64, uzun metin ayarları vb.) — ek_bilgi 200 karakterle sınırlı.
+    uzun_deger  = db.Column(db.Text)
+
+# ── BANKA ──────────────────────────────────────────────────────────────
+class Banka(db.Model):
+    __tablename__ = 'banka'
+    id          = db.Column(db.Integer, primary_key=True)
+    banka_adi   = db.Column(db.String(100), nullable=False)
+    sube        = db.Column(db.String(100))
+    hesap_no    = db.Column(db.String(50))
+    iban        = db.Column(db.String(50))
+    swift       = db.Column(db.String(20))
+    doviz       = db.Column(db.String(5), default='USD')
+    aciklama    = db.Column(db.String(200))
+    varsayilan  = db.Column(db.Boolean, default=False)
+    aktif       = db.Column(db.Boolean, default=True)
+    olusturma   = db.Column(db.DateTime, default=datetime.now)
+
+# ── KASA ──────────────────────────────────────────────────────────────
+class Kasa(db.Model):
+    __tablename__ = 'kasa'
+    id          = db.Column(db.Integer, primary_key=True)
+    ad          = db.Column(db.String(100), nullable=False)
+    doviz       = db.Column(db.String(5), default='TRY')
+    bakiye      = db.Column(Para, default=0)
+    ana_kasa    = db.Column(db.Boolean, default=False, nullable=False)
+    # Banka hesabina bagli kasa: bu kasadaki para o banka hesabindadir.
+    # Bos ise nakit kasasidir. Kasa<->Banka virmani cift tarafli islenir.
+    banka_id    = db.Column(db.Integer, db.ForeignKey('banka.id'), nullable=True)
+    aciklama    = db.Column(db.String(200))
+    varsayilan  = db.Column(db.Boolean, default=False)
+    aktif       = db.Column(db.Boolean, default=True)
+    olusturma   = db.Column(db.DateTime, default=datetime.now)
+
+class KasaHareket(db.Model):
+    __tablename__ = 'kasa_hareket'
+    id              = db.Column(db.Integer, primary_key=True)
+    kasa_id         = db.Column(db.Integer, db.ForeignKey('kasa.id'), nullable=False)
+    tarih           = db.Column(db.Date, default=date.today)
+    tip             = db.Column(db.String(10), nullable=False)
+    tutar           = db.Column(Para, nullable=False)
+    aciklama        = db.Column(db.String(300))
+    baglanti_tip    = db.Column(db.String(20))
+    baglanti_id     = db.Column(db.String(50))
+    cari_id         = db.Column(db.String(20))
+    siparis_id      = db.Column(db.String(20))
+    evrak_no        = db.Column(db.String(50))
+    kullanici       = db.Column(db.String(50))
+    olusturma       = db.Column(db.DateTime, default=datetime.now)
+    kasa            = db.relationship('Kasa', backref='hareketler', lazy=True)
+
+# ── KESİM ─────────────────────────────────────────────────────────────
+class Kesim(db.Model):
+    __tablename__ = 'kesim'
+    id              = db.Column(db.String(20), primary_key=True)
+    kesim_tarihi    = db.Column(db.Date, default=date.today)
+    kaynak_tip      = db.Column(db.String(10), nullable=False)
+    kaynak_id       = db.Column(db.String(20), nullable=False)
+    kaynak_ids_json = db.Column(db.Text)
+    kaynak_no       = db.Column(db.String(50))
+    kaynak_cins     = db.Column(db.String(50))
+    kaynak_miktar_once  = db.Column(Olcu)
+    kaynak_miktar_sonra = db.Column(Olcu, default=0)
+    kaynak_durum    = db.Column(db.String(20), default='Kismi')
+    # Kaynağın kesimden ÖNCEKI stok durumu (Serbest/Rezerve/Satildi). Geri alınca
+    # bu duruma döndürülür — müşteri için kesilen (rezerve/satılmış) bloklar körlemesine
+    # Serbest yapılmaz. JSON: {stok_id: 'durum'} — çoklu kaynak için.
+    kaynak_onceki_durum = db.Column(db.Text)
+    kaynak_birim_maliyet  = db.Column(Para)
+    kaynak_toplam_maliyet = db.Column(Para)
+    kaynak_doviz    = db.Column(db.String(5), default='USD')
+    # Üretim Blok No: kesilen bloktan üretilen plakaların yeni blok numarası.
+    # Hem orijinal blok no (kaynak_no) hem de bu yeni üretim blok no
+    # üzerinden tüm takip (maliyet, karlılık, izleme) yapılabilir.
+    uretim_blok_no  = db.Column(db.String(50))
+    fire_orani      = db.Column(Olcu, default=0)
+    fire_miktar     = db.Column(Olcu, default=0)
+    aciklama        = db.Column(db.String(300))
+    kullanici       = db.Column(db.String(50))
+    olusturma       = db.Column(db.DateTime, default=datetime.now)
+    detaylar        = db.relationship('KesimDetay', backref='kesim', lazy=True, cascade='all, delete-orphan')
+
+class KesimDetay(db.Model):
+    __tablename__ = 'kesim_detay'
+    id              = db.Column(db.Integer, primary_key=True)
+    kesim_id        = db.Column(db.String(20), db.ForeignKey('kesim.id'), nullable=False)
+    hedef_tip       = db.Column(db.String(10), nullable=False)
+    hedef_stok_id   = db.Column(db.String(20))
+    cins            = db.Column(db.String(50))
+    boy             = db.Column(Olcu)
+    yukseklik       = db.Column(Olcu)
+    kalinlik        = db.Column(Olcu)
+    en              = db.Column(Olcu)
+    miktar_m2       = db.Column(Olcu)
+    adet            = db.Column(db.Integer, default=1)
+    kasa_no         = db.Column(db.String(50))
+    slab_no         = db.Column(db.String(50))
+    ozellik         = db.Column(db.String(100))
+    birim_maliyet   = db.Column(Para)
+    toplam_maliyet  = db.Column(Para)
+    aciklama        = db.Column(db.String(200))
+
+# ── PROFORMA ──────────────────────────────────────────────────────────
+class Proforma(db.Model):
+    __tablename__ = 'proforma'
+    id              = db.Column(db.String(20), primary_key=True)
+    olusturma       = db.Column(db.DateTime, default=datetime.now)
+    siparis_id      = db.Column(db.String(20), db.ForeignKey('siparis_kayit.id'), nullable=True)
+    musteri         = db.Column(db.String(200))
+    # Musteri KIMLIGI. Onceden bag yalnizca `musteri` metniydi;
+    # unvan duzenlenince gecmis koptugu icin eklendi (CRM-A).
+    cari_id         = db.Column(db.String(20), index=True)
+    musteri_adres   = db.Column(db.Text)
+    musteri_ulke    = db.Column(db.String(100))
+    urun_tip        = db.Column(db.String(20))
+    cins            = db.Column(db.String(100))
+    ozellik         = db.Column(db.String(50))
+    olcu            = db.Column(db.String(200))
+    adet            = db.Column(db.Integer, default=1)
+    birim_fiyat     = db.Column(Para)
+    miktar          = db.Column(Olcu)
+    birim           = db.Column(db.String(20))
+    doviz           = db.Column(db.String(5), default='USD')
+    toplam          = db.Column(Para)
+    odeme_sekli     = db.Column(db.String(50))
+    # W1: 20 -> 50. Siparis.teslim_sekli ZATEN 50; ayni alan iki modelde
+    # farkli genislikteydi. 'DDP Delivered Duty Paid' gibi uzun Incoterm
+    # aciklamalari 20'ye sigmiyor ve proformadan siparise gecerken de
+    # kirilabilirdi.
+    teslim_sekli    = db.Column(db.String(50))
+    termin          = db.Column(db.Date)
+    yuklenme_limani = db.Column(db.String(100))
+    varis_limani    = db.Column(db.String(100))
+    banka_adi       = db.Column(db.String(100))
+    iban            = db.Column(db.String(50))
+    ulke            = db.Column(db.String(80))
+    swift           = db.Column(db.String(20))
+    satici_firma    = db.Column(db.String(200))
+    satici_adres    = db.Column(db.Text)
+    satici_tel      = db.Column(db.String(50))
+    satici_email    = db.Column(db.String(100))
+    notlar          = db.Column(db.Text)
+    ozel_sartlar    = db.Column(db.Text)
+    konteyner_no    = db.Column(db.String(100))
+    # W1: 30 -> 120. GTIP listesine kod + aciklama birlikte girilince
+    # ('2515.12 — Kesilmis mermer blok/levha' = 36 karakter) 30 karaktere
+    # sigmiyordu ve proforma kaydi 500 ile cokuyordu.
+    hs_kodu         = db.Column(db.String(120), default='680221000019')
+    iskonto         = db.Column(Para, default=0)
+    iskonto_tip     = db.Column(db.String(5), default='%')
+    iskonto_sabit   = db.Column(Para, default=0)
+    # IA1: genel iskontonun gerekçesi — belgede iskonto satırının
+    # yanında basılır ("2026 sezon anlaşması" gibi).
+    iskonto_aciklama = db.Column(db.String(200))
+    avans_yuzdesi   = db.Column(Olcu, default=0)
+    avans_tutari    = db.Column(Para, default=0)
+    avans_tip       = db.Column(db.String(5), default='%')
+
+    # ── SATIŞ TAKİBİ (PF2) ──
+    # temsilci: teklifi HAZIRLAYAN satisci (Kullanici.ad). Var olan
+    # `onaya_gonderen` ONAY akisinin parcasi, sahiplik degil.
+    temsilci        = db.Column(db.String(50), index=True)
+
+    # KAYIP KAYDI.
+    # 'Iptal' ile 'Kaybedildi' AYRI seylerdir: iptal TEKLIFI GERI
+    # CEKMEK, kayip MUSTERININ BASKASINI SECMESI. Ayni kutuya
+    # koymak kazanma oranini olculemez yapar.
+    #
+    # Sebep alani asil degerli olan: "kac teklif kaybettik" tek
+    # basina bir sey ogretmez, "neden kaybettik" ogretir.
+    # fiyat | termin | rakip | musteri_vazgecti | stok_yok | diger
+    kayip_sebep     = db.Column(db.String(30), index=True)
+    kayip_not       = db.Column(db.Text)
+    kayip_tarihi    = db.Column(db.Date)
+    avans_sabit     = db.Column(Para, default=0)
+    tur             = db.Column(db.String(20), default='ihracat')
+    kdv_oran        = db.Column(Olcu, default=0)
+    packing_list    = db.Column(db.Boolean, default=False)
+    genel_bundle_sayisi = db.Column(db.Integer, default=10)
+    karma_bundle    = db.Column(db.Boolean, default=False)
+    kullanici       = db.Column(db.String(50))
+    durum           = db.Column(db.String(20), default='Taslak')
+    proforma_tipi   = db.Column(db.String(20), default='satis')
+    # ── Revizyon zinciri ──
+    # ana_pi_id: kök proformanın id'si (Rev.0 dahil tüm sürümler aynı kökü paylaşır).
+    # Kök kayıtta ana_pi_id = kendi id'si. revizyon_no: 0=orijinal, 1,2,3...
+    # aktif_surum: zincirde yalnızca EN GÜNCEL sürüm True; eski sürümler arşiv (False).
+    ana_pi_id       = db.Column(db.String(20), index=True)
+    revizyon_no     = db.Column(db.Integer, default=0)
+    aktif_surum     = db.Column(db.Boolean, default=True)
+    revizyon_notu   = db.Column(db.Text)  # bu sürümde neyin değiştiği
+    # ── İç onay (çift kontrol) izi ──
+    onaya_gonderen  = db.Column(db.String(50))   # Taslak → İç Onay Bekliyor yapan
+    onaya_gonderme_tarihi = db.Column(db.DateTime)
+    onaylayan       = db.Column(db.String(50))   # İç Onay Bekliyor → Onaylandı yapan (farklı kişi)
+    onay_tarihi     = db.Column(db.DateTime)
+    onay_reddeden   = db.Column(db.String(50))   # onayı reddedip Taslak'a geri döndüren
+    onay_red_notu   = db.Column(db.Text)         # red gerekçesi
+    kalemler        = db.relationship('ProformaKalem', backref='proforma', lazy=True, cascade='all, delete-orphan')
+
+class ProformaKalem(db.Model):
+    __tablename__ = 'proforma_kalem'
+    id              = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    proforma_id     = db.Column(db.String(20), db.ForeignKey('proforma.id'), nullable=False)
+    # K4: bu kalem hangi konteynerde? Paketleme listesi ve ticari fatura
+    # buna gore gruplanir. Bos ise belgede "ATANMAMIS" basligi altinda
+    # gosterilir (gizlenmez — yarim kalmis calisma gorunur olmali).
+    konteyner_id    = db.Column(db.Integer, db.ForeignKey('konteyner.id'),
+                                nullable=True, index=True)
+    konteyner_no    = db.Column(db.String(50))   # W1: 20 -> 50
+    kap_no          = db.Column(db.String(20))
+    kap_tip         = db.Column(db.String(20))
+    urun_tip        = db.Column(db.String(20))
+    cins            = db.Column(db.String(100))
+    aciklama        = db.Column(db.String(200))
+    yuzey_spec      = db.Column(db.String(50))
+    ozellik         = db.Column(db.String(50))
+    mense           = db.Column(db.String(50))   # MS1: stoktan gelir; boşsa TURKIYE sayılır
+    kalinlik        = db.Column(Olcu)
+    en              = db.Column(Olcu)
+    boy             = db.Column(Olcu)
+    yukseklik       = db.Column(Olcu)
+    adet            = db.Column(db.Integer, default=1)
+    kasa_ici_adet   = db.Column(db.Integer, default=1)
+    miktar          = db.Column(Olcu)
+    birim           = db.Column(db.String(20))   # W1: 10 -> 20
+    agirlik         = db.Column(Olcu)
+    agirlik_birim   = db.Column(db.String(5), default='KG')
+    birim_fiyat     = db.Column(Para)
+    toplam_fiyat    = db.Column(Para)
+    net_fiyat       = db.Column(Para)
+    iskonto         = db.Column(Para, default=0)
+    iskonto_tip     = db.Column(db.String(5), default='%')
+    iskonto_sabit   = db.Column(Para, default=0)
+    doviz           = db.Column(db.String(5), default='USD')
+    avans_yuzdesi   = db.Column(Olcu, default=0)
+    avans_oran      = db.Column(Olcu, default=0)
+    sira            = db.Column(db.Integer, default=0)
+    olcu            = db.Column(db.String(100))
+    notlar          = db.Column(db.Text)
+    blok_no         = db.Column(db.String(50))
+    bundle_no       = db.Column(db.String(50))
+    slab_no         = db.Column(db.Text)
+    stok_id         = db.Column(db.String(20))
+    m2_toplam       = db.Column(Olcu)
+    sqft_toplam     = db.Column(Olcu)
+
+# ── SATIŞ KAYDI ────────────────────────────────────────────────────────
+# FAZ 16: siparis_kalem_id eklendi
+class SatisKaydi(db.Model):
+    __tablename__ = 'satis_kaydi'
+    id              = db.Column(db.String(30), primary_key=True)
+    stok_id         = db.Column(db.String(50), index=True)
+    stok_tip        = db.Column(db.String(10))
+    cins            = db.Column(db.String(100))
+    ozellik         = db.Column(db.String(100))
+    blok_no         = db.Column(db.String(50))
+    boy             = db.Column(Olcu)
+    yukseklik       = db.Column(Olcu)
+    kalinlik        = db.Column(Olcu)
+    en              = db.Column(Olcu)
+    metraj_m2       = db.Column(Olcu)
+    metraj_sqft     = db.Column(Olcu)
+    hacim_m3        = db.Column(Olcu)
+    tonaj           = db.Column(Olcu)
+    agirlik_kg      = db.Column(Olcu)
+    siparis_id      = db.Column(db.String(20), db.ForeignKey('siparis_kayit.id'), nullable=True, index=True)
+    siparis_kalem_id = db.Column(db.Integer, db.ForeignKey('siparis_kalem.id'), nullable=True, index=True)  # YENİ
+    proforma_id     = db.Column(db.String(20), db.ForeignKey('proforma.id'), nullable=True, index=True)
+    sevkiyat_id     = db.Column(db.String(20), nullable=True)
+    musteri         = db.Column(db.String(200), index=True)
+    # Musteri KIMLIGI. Onceden bag yalnizca `musteri` metniydi;
+    # unvan duzenlenince gecmis koptugu icin eklendi (CRM-A).
+    cari_id         = db.Column(db.String(20), index=True)
+    musteri_ulke    = db.Column(db.String(50))
+    satis_tarihi    = db.Column(db.Date, default=date.today)
+    teslim_tarihi   = db.Column(db.Date)
+    olusturma       = db.Column(db.DateTime, default=datetime.now)
+    birim_fiyat     = db.Column(Para)
+    miktar          = db.Column(Olcu)
+    birim           = db.Column(db.String(20))   # W1: 10 -> 20
+    doviz           = db.Column(db.String(5))
+    tutar           = db.Column(Para)
+    kur_usd         = db.Column(Kur)
+    kur_eur         = db.Column(Kur)
+    tutar_usd       = db.Column(Para)
+    tutar_try       = db.Column(Para)
+    maliyet_usd     = db.Column(Para, default=0)
+    maliyet_try     = db.Column(Para, default=0)
+    kar_usd         = db.Column(Para, default=0)
+    marj_yuzde      = db.Column(Olcu, default=0)
+    fatura_id       = db.Column(db.String(20))
+    kaynak          = db.Column(db.String(20), default='teslim')
+    fatura_no       = db.Column(db.String(50))
+    fatura_tarihi   = db.Column(db.Date)
+    notlar          = db.Column(db.Text)
+    kullanici       = db.Column(db.String(50))
+    guncelleme      = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
+
+# ── ÇEK / SENET ───────────────────────────────────────────────────────
+class Cek(db.Model):
+    """Alınan (müşteriden) ve verilen (tedarikçiye) çekler/senetler.
+    Bir çek yaşam döngüsünden geçer: portföy → tahsilde/ciro/teminat → tahsil/öded."""
+    __tablename__ = 'cek'
+    id              = db.Column(db.String(20), primary_key=True)  # CEK-0001 gibi
+    # Yön: 'alinan' (müşteriden aldık, bizim alacağımız) | 'verilen' (tedarikçiye verdik, borcumuz)
+    yon             = db.Column(db.String(10), nullable=False)
+    tip             = db.Column(db.String(10), default='cek')  # 'cek' | 'senet'
+    # Çek üzerindeki bilgiler
+    cek_no          = db.Column(db.String(50))      # çek numarası
+    banka_adi       = db.Column(db.String(100))     # çeki yazan banka (alınan çekte müşterinin bankası)
+    sube            = db.Column(db.String(100))
+    hesap_sahibi    = db.Column(db.String(200))     # çeki düzenleyen (keşideci)
+    tutar           = db.Column(Para, nullable=False)
+    doviz           = db.Column(db.String(5), default='TRY')
+    keside_tarihi   = db.Column(db.Date)            # düzenlenme tarihi
+    vade_tarihi     = db.Column(db.Date, nullable=False)  # tahsil/ödeme tarihi (en kritik alan)
+    # Cari bağlantısı (kimden aldık / kime verdik)
+    cari_id         = db.Column(db.String(20), db.ForeignKey('cariler.id'))
+    cari_unvan      = db.Column(db.String(200))
+    # Durum: çekin güncel hali
+    #  alinan için:  Portfoyde, TahsildeBanka, Tahsil Edildi, Ciro Edildi, Teminatta, Karsiliksiz, Iade Edildi
+    #  verilen için: Verildi, Odendi, Karsiliksiz, Iade Alindi
+    durum           = db.Column(db.String(20), default='Portfoyde')
+    # İlişkili kayıtlar
+    tahsil_banka_id = db.Column(db.Integer, db.ForeignKey('banka.id'))  # tahsile/teminata verilen banka
+    ciro_cari_id    = db.Column(db.String(20))      # ciro edildiyse kime
+    ciro_cari_unvan = db.Column(db.String(200))
+    fatura_id       = db.Column(db.String(20))      # hangi faturaya karşılık (opsiyonel)
+    cari_hareket_id = db.Column(db.String(30))      # çek tahsil/ödeme olunca oluşan cari hareket
+    kasa_hareket_id = db.Column(db.Integer)         # kasaya/bankaya işlenince
+    # Meta
+    aciklama        = db.Column(db.String(300))
+    aktif           = db.Column(db.Boolean, default=True)  # iptal edilirse False
+    kullanici       = db.Column(db.String(50))
+    olusturma       = db.Column(db.DateTime, default=datetime.now)
+    guncelleme      = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
+
+
+class CekHareket(db.Model):
+    """Bir çekin yaşam döngüsündeki her durum değişikliğinin kaydı (geçmiş/log)."""
+    __tablename__ = 'cek_hareket'
+    id              = db.Column(db.Integer, primary_key=True)
+    cek_id          = db.Column(db.String(20), db.ForeignKey('cek.id'), nullable=False)
+    tarih           = db.Column(db.Date, default=date.today)
+    islem           = db.Column(db.String(40))   # 'Alındı', 'Tahsile Verildi', 'Tahsil Edildi', 'Ciro Edildi', 'Teminata Verildi', 'Karşılıksız', 'İade' ...
+    onceki_durum    = db.Column(db.String(20))
+    yeni_durum      = db.Column(db.String(20))
+    aciklama        = db.Column(db.String(300))
+    kullanici       = db.Column(db.String(50))
+    olusturma       = db.Column(db.DateTime, default=datetime.now)
+    cek             = db.relationship('Cek', backref='hareketler', lazy=True)
+
+
+# ── AUDIT LOG ─────────────────────────────────────────────────────────
+# ── KDV İADE DOSYASI (F7) ─────────────────────────────────────────────
+# İhracatçının en büyük nakit kalemi. Bir KDV beyan DÖNEMİ için açılır;
+# o dönemin ihracat faturaları ve yüklenilen KDV kalemleri bu dosyaya
+# bağlanır, sonra tahsilat izlenir.
+#
+# YÜKLENİLEN KDV BURADA HESAPLANMAZ. Sipariş teslim edilirken
+# 'Devreden KDV' → 'Iade KDV' dönüşümü flask_app.py'de zaten yapılıyor
+# (KDV İADE DÖNÜŞÜMÜ, Madde 6). Bu tablo o kalemleri bir dosyaya
+# bağlar ve süreci izler.
+class KdvIadeDosya(db.Model):
+    __tablename__ = 'kdv_iade_dosya'
+    id               = db.Column(db.String(20), primary_key=True)
+    donem            = db.Column(db.String(7))    # 'YYYY-MM' KDV beyan dönemi
+    iade_tur         = db.Column(db.String(20), default='ihracat')  # ihracat|ihrac_kayitli
+    iade_sekli       = db.Column(db.String(10), default='nakden')   # nakden|mahsuben
+    # Hazirlaniyor → Beyan Edildi → YMM Raporu → Vergi Dairesinde
+    #   → Kismi Alindi | Alindi | Reddedildi
+    durum            = db.Column(db.String(25), default='Hazirlaniyor')
+    beyan_tarihi     = db.Column(db.Date)
+    ymm_rapor_no     = db.Column(db.String(50))
+    ymm_rapor_tarihi = db.Column(db.Date)
+    vd_basvuru_tarihi = db.Column(db.Date)
+    vergi_dairesi    = db.Column(db.String(100))
+    # Tutarlar TL — KDV her zaman TL üzerinden beyan edilir.
+    talep_tutar      = db.Column(Para, default=0)   # beyanda talep edilen
+    onaylanan_tutar  = db.Column(Para, default=0)   # vergi dairesinin onayladığı
+    alinan_tutar     = db.Column(Para, default=0)   # fiilen tahsil edilen
+    alinma_tarihi    = db.Column(db.Date)
+    aciklama         = db.Column(db.Text)
+    kullanici        = db.Column(db.String(50))
+    olusturma        = db.Column(db.DateTime, default=datetime.now)
+    guncelleme       = db.Column(db.DateTime, default=datetime.now)
+
+
+# ── KONTEYNER (K4) ────────────────────────────────────────────────────
+# Bir yuklemede birden cok konteyner olabilir. Onceden proforma ve
+# sevkiyatta TEK konteyner_no metin alani vardi; uc konteynerlik bir
+# yukleme tek alana sigdirilmaya calisiliyordu.
+#
+# Neden ayri tablo:
+#   • Her konteynerin KENDI muhur (seal) numarasi vardir
+#   • VGM (dogrulanmis brut agirlik) mevzuatca KONTEYNER BASINA beyan
+#     edilir — tek alanda tutulamaz
+#   • Gumruk ceki listesi konteyner konteyner gruplanmis ister
+#
+# Hem proformaya (belge uretimi) hem sevkiyata (operasyon) baglanabilir;
+# proformadan sevkiyata gecerken kayitlar tasinabilir.
+class Konteyner(db.Model):
+    __tablename__ = 'konteyner'
+    id            = db.Column(db.Integer, primary_key=True)
+    sira          = db.Column(db.Integer, default=1)
+    proforma_id   = db.Column(db.String(20), db.ForeignKey('proforma.id'),
+                              nullable=True, index=True)
+    sevkiyat_id   = db.Column(db.String(20), db.ForeignKey('sevkiyat_kayit.id'),
+                              nullable=True, index=True)
+    konteyner_no  = db.Column(db.String(50))    # MSCU7742190  (W1: 30 -> 50)
+    muhur_no      = db.Column(db.String(30))    # her konteynerin kendi muhru
+    tip           = db.Column(db.String(20))    # 20' DC, 40' HC ...
+    tara_kg       = db.Column(Olcu)         # bos konteyner agirligi
+    net_kg        = db.Column(Olcu)         # yuk agirligi
+    brut_kg       = db.Column(Olcu)         # VGM — tara + net
+    booking_no    = db.Column(db.String(50))
+    aciklama      = db.Column(db.Text)
+    olusturma     = db.Column(db.DateTime, default=datetime.now)
+
+
+# ── NAKİT AKIŞI (NA1) ─────────────────────────────────────────────────
+class SabitGider(db.Model):
+    """Tekrarlayan gider SABLONU — kira, maas, elektrik…
+
+    Projeksiyona otomatik yayilir. `tutar` TAHMINIDIR: elektrik her ay
+    degisir, kira yilda bir artar. Gerceklesince NakitPlan uzerinden
+    guncellenir, sablon oldugu gibi kalir.
+    """
+    __tablename__ = 'sabit_gider'
+    id          = db.Column(db.String(20), primary_key=True)
+    ad          = db.Column(db.String(100), nullable=False)
+    kategori    = db.Column(db.String(50))      # Personel/Kira/Enerji/Vergi/Diger
+    tutar       = db.Column(Para, nullable=False)
+    doviz       = db.Column(db.String(5), default='TRY')
+    # Periyot: aylik | haftalik | yillik
+    periyot     = db.Column(db.String(10), default='aylik')
+    ayin_gunu   = db.Column(db.Integer, default=1)    # aylik/yillik icin (1-31)
+    haftanin_gunu = db.Column(db.Integer)             # haftalik icin (0=Pzt)
+    ay          = db.Column(db.Integer)               # yillik icin (1-12)
+    baslangic   = db.Column(db.Date, default=date.today)
+    bitis       = db.Column(db.Date, nullable=True)   # bos = suresiz
+    aktif       = db.Column(db.Boolean, default=True)
+    aciklama    = db.Column(db.Text)
+    # Surum zinciri: tutar degisince kayit DUZENLENMEZ, eskisine bitis
+    # konup yeni tutarla yeni kayit acilir. Ayni giderin tum surumleri
+    # bu alani paylasir. Ilk kayitta kendi id'sine esitlenir.
+    # Ada gore gruplamak kirilgan olurdu: bir surumun adi duzeltilince
+    # zincir kopardi.
+    grup_id     = db.Column(db.String(20), index=True)
+    olusturma   = db.Column(db.DateTime, default=datetime.now)
+
+
+class NakitPlan(db.Model):
+    """Projeksiyondaki TEKIL kalem.
+
+    Uc kaynaktan dogar:
+      'sabit'  — SabitGider sablonundan uretilen
+      'elle'   — kullanicinin ekledigi (vadesiz harekete vade atama)
+      'cari'/'cek'/'fatura' — mevcut kayitlardan turetilen
+
+    ONEMLI: cari/cek/fatura kalemleri icin BU TABLOYA KAYIT ACILMAZ;
+    projeksiyon onlari anlik okur. Tablo yalnizca 'sabit' ve 'elle'
+    kalemleri tutar. Aksi halde ayni borc iki kez sayilirdi.
+
+    `gerceklesti` ELLE isaretlenir. Kasa hareketiyle otomatik
+    eslestirme denenmedi: yanlis eslestirme, olmayan bir tahsilati
+    "olmus" gostermekten daha kotu sonuc verir.
+    """
+    __tablename__ = 'nakit_plan'
+    id          = db.Column(db.String(20), primary_key=True)
+    tarih       = db.Column(db.Date, nullable=False, index=True)
+    yon         = db.Column(db.String(6), nullable=False)   # giris | cikis
+    tutar       = db.Column(Para, nullable=False)
+    doviz       = db.Column(db.String(5), default='TRY')
+    aciklama    = db.Column(db.String(200))
+    kaynak      = db.Column(db.String(20), default='elle')  # sabit | elle
+    kaynak_id   = db.Column(db.String(20))    # SabitGider.id ya da CariHareket.id
+    cari_id     = db.Column(db.String(20))
+    gerceklesti = db.Column(db.Boolean, default=False)
+    gerceklesme_tarihi = db.Column(db.Date)
+    kullanici   = db.Column(db.String(50))
+    olusturma   = db.Column(db.DateTime, default=datetime.now)
+
+
+class AuditLog(db.Model):
+    __tablename__ = 'audit_log'
+    id              = db.Column(db.Integer, primary_key=True)
+    tarih           = db.Column(db.DateTime, default=datetime.utcnow)
+    kullanici       = db.Column(db.String(100))
+    islem_tipi      = db.Column(db.String(50))
+    tablo_adi       = db.Column(db.String(50))
+    kayit_id        = db.Column(db.String(50))
+    eski_veri       = db.Column(db.Text)
+    yeni_veri       = db.Column(db.Text)
+    ip_adresi       = db.Column(db.String(50))
+    
+    
+
+
+class CariErisim(db.Model):
+    """Kapali bir musteriye ISTISNA erisim.
+
+    "Bu musteriyi Ali ve Ayse gorsun, baskasi gormesin" durumu icin.
+    Sorumlu ve admin zaten gorur; bu tablo onlarin disindakileri
+    tek tek yetkilendirir.
+    """
+    __tablename__ = 'cari_erisim'
+    id          = db.Column(db.Integer, primary_key=True)
+    cari_id     = db.Column(db.String(20), index=True, nullable=False)
+    kullanici   = db.Column(db.String(50), index=True, nullable=False)
+    veren       = db.Column(db.String(50))
+    olusturma   = db.Column(db.DateTime, default=datetime.now)
+
+    __table_args__ = (
+        db.UniqueConstraint('cari_id', 'kullanici', name='uq_cari_erisim'),
+    )
+
+
+class CariAktivite(db.Model):
+    """Musteriyle yapilan temaslar ve SONRAKI ADIM.
+
+    Sistemde musteriyle ne konusuldugunu tutan hicbir yer yoktu;
+    bilgi satiscinin kafasinda kaliyordu. Ekip buyudugunde bu
+    paylasilamaz hale gelir.
+
+    `sonraki_adim` + `sonraki_tarih` en onemli alanlar: bir CRM'i
+    not defterinden ayiran sey gecmisi kaydetmesi degil, GELECEGI
+    hatirlatmasidir.
+    """
+    __tablename__ = 'cari_aktivite'
+    id            = db.Column(db.Integer, primary_key=True)
+    cari_id       = db.Column(db.String(20), index=True, nullable=False)
+    # Kiminle konusuldugu — CariKisi.id. Zorunlu degil: fuarda
+    # tanismadigi biriyle de konusulabilir.
+    kisi_id       = db.Column(db.Integer, index=True)
+    tarih         = db.Column(db.Date, index=True, default=date.today)
+    # telefon | eposta | ziyaret | fuar | numune | teklif | diger
+    tip           = db.Column(db.String(20), index=True)
+    ozet          = db.Column(db.String(200), nullable=False)
+    detay         = db.Column(db.Text)
+
+    # ── TAKIP ──
+    sonraki_adim  = db.Column(db.String(200))
+    sonraki_tarih = db.Column(db.Date, index=True)
+    # Takip yapildi mi. Vadesi gecmis takipleri listelemek icin
+    # sonraki_tarih ile birlikte kullanilir.
+    tamamlandi    = db.Column(db.Boolean, default=False, index=True)
+    tamamlanma    = db.Column(db.Date)
+
+    kullanici     = db.Column(db.String(50), index=True)
+    olusturma     = db.Column(db.DateTime, default=datetime.now)
+
+
+class CariKisi(db.Model):
+    """Musterideki kisiler.
+
+    Cari'de tek bir `yetkili` alani vardi. Ihracatta bir musteride
+    satin almaci, lojistik sorumlusu ve muhasebe AYRI kisilerdir;
+    hangisine ne zaman yazilacagi satis ekibinin gunluk sorusudur.
+    """
+    __tablename__ = 'cari_kisi'
+    id          = db.Column(db.Integer, primary_key=True)
+    cari_id     = db.Column(db.String(20), index=True, nullable=False)
+    ad          = db.Column(db.String(120), nullable=False)
+    gorev       = db.Column(db.String(80))
+    telefon     = db.Column(db.String(50))
+    email       = db.Column(db.String(120))
+    dil         = db.Column(db.String(30))
+    birincil    = db.Column(db.Boolean, default=False)
+    aktif       = db.Column(db.Boolean, default=True)
+    aciklama    = db.Column(db.Text)
+    olusturma   = db.Column(db.DateTime, default=datetime.now)
+
+# ══════════════════════════════════════════════════════════════════
+#  MUSTERI KIMLIGI OTOMATIK DOLDURMA  (CRM-A)
+#
+#  Asagidaki bes tabloyu 11 ayri fonksiyon olusturuyor. Her birine
+#  elle `cari_id=` eklemek, 12.'si yazildiginda unutulmasi demekti —
+#  kayit sessizce sahipsiz kalirdi. Bunun yerine kayit yazilirken
+#  `musteri` adindan cozuluyor; ileride eklenecek her kod
+#  kendiliginden kapsaniyor.
+#
+#  Ham baglanti uzerinden SELECT yapiliyor: oturumu kullanmak flush
+#  icinde ozyineleme riski dogururdu.
+#
+#  Eslesme bulunamazsa cari_id NULL kalir ve kayit REDDEDILMEZ.
+#  Fatura kesilmesini engellemek, eksik bagdan kotu olurdu.
+#  Acikta kalanlari bulmak icin: crm_bag_denetim.py
+# ══════════════════════════════════════════════════════════════════
+from sqlalchemy import event as _event, text as _text
+
+
+class ErisimHatasi(Exception):
+    """Kullanicinin GORMEDIGI bir musteri adina kayit acilmaya
+    calisildi. flask_app bunu 403'e cevirir."""
+
+
+def cari_id_otomatik_doldur(mapper, connection, target):
+    if not getattr(target, 'cari_id', None):
+        unvan = (getattr(target, 'musteri', None) or '').strip()
+        if unvan:
+            try:
+                r = connection.execute(
+                    _text('SELECT id FROM cariler WHERE unvan = :u LIMIT 1'),
+                    {'u': unvan}).fetchone()
+                if r:
+                    target.cari_id = r[0]
+            except Exception:
+                # Baglanti cozulmezse kayit YINE DE yazilir; eksik bag
+                # denetimle bulunur, veri kaybi olmaz.
+                pass
+
+    # ── GORUNURLUK DENETIMI (CRM-D) ──
+    # Olculdu: kullanici GORMEDIGI musteri adina kayit acabiliyordu.
+    # Kayit o musteriye yaziliyor; acan kisi sonra goremiyor,
+    # sorumlu satisci ise acmadigi bir belge buluyor.
+    #
+    # Kontrol 11 olusturma noktasina tek tek yazilmadi: 12.'si
+    # eklendiginde unutulurdu. Dinleyici ileride eklenecek kodu da
+    # kendiliginden kapsar.
+    cid = getattr(target, 'cari_id', None)
+    if not cid:
+        return                      # bagsiz kayit — crm_bag_denetim yakalar
+    kontrol = globals().get('_erisim_kontrol_kancasi')
+    if kontrol is None:
+        return                      # flask_app henuz baglamadi (CLI, goc)
+    if not kontrol(cid):
+        raise ErisimHatasi(
+            'Bu müşteri adına kayıt açma yetkiniz yok. '
+            'Müşteri size kapalı; sorumlusundan erişim isteyin.')
+
+
+for _model in (Proforma, Fatura, SatisKaydi, Sevkiyat, Rezervasyon, Siparis):
+    _event.listen(_model, 'before_insert', cari_id_otomatik_doldur)
+
+
+def stok_cari_id_otomatik_doldur(mapper, connection, hedef):
+    """Stok kaydinda cari_id bos gelirse `uretici` adindan cozer (SK1).
+
+    Stok DORT ayri yerde olusturuluyor (elle giris, toplu ice
+    aktarma, kesim, ebatlama). Her birine ayri ayri cari_id yazmak
+    yerine tek yerde cozuluyor — biri unutulursa bag sessizce
+    kopardi.
+
+    ESLESMEZSE BOS BIRAKILIR. Yanlis cariye baglamak, SF2'de
+    uretimde gordugumuz hatanin ta kendisiydi: karsi kayit baska
+    tedarikcinin hesabina dusmustu.
+    """
+    if getattr(hedef, 'cari_id', None):
+        return
+    ad = (getattr(hedef, 'uretici', '') or '').strip()
+    if not ad:
+        return
+    try:
+        satir = connection.execute(
+            db.text('SELECT id FROM cariler WHERE UPPER(unvan) = :u LIMIT 1'),
+            {'u': ad.upper()}).fetchone()
+        if satir:
+            hedef.cari_id = satir[0]
+    except Exception:
+        # Bag kurulamazsa stok kaydi YINE DE olusmali; cari_id
+        # bos kalir ve ada gore geri dusme calisir.
+        pass
+
+
+for _model in (BlokStok, PlakaStok, EbatliStok):
+    _event.listen(_model, 'before_insert', stok_cari_id_otomatik_doldur)
