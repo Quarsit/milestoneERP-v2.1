@@ -1,0 +1,171 @@
+/* ════════════════════════════════════════════════════════════════════
+   Milestone ERP — Mobil uyumluluk katmanı  (v2)
+   SADECE 760px ve altında devreye girer. Masaüstü hiç etkilenmez.
+
+   base.html'de </style> satırının altına şu satır eklenmiş olmalı:
+   <link rel="stylesheet" href="{{ url_for('static', filename='mobile.css') }}">
+   ════════════════════════════════════════════════════════════════════ */
+
+@media (max-width: 760px) {
+
+/* ─────────────────────────────────────────────────────────────
+   1) ÜST ÇUBUK — yatay taşmanın asıl kaynağı
+   .ust'te flex-wrap yoktu; arama + kur + butonlar sığmayınca
+   belgeyi ekrandan geniş yapıp TÜM sayfayı sağdan kestiriyordu.
+   ───────────────────────────────────────────────────────────── */
+.ust {
+  flex-wrap: wrap;          /* sığmayan alt satıra insin */
+  gap: 8px;
+  padding: 10px 14px;
+  position: static;         /* sabit değil — telefonda dikey alan kazanılır */
+}
+.arama {
+  flex: 1 1 100%;           /* arama tek başına ilk satır */
+  max-width: none;
+  white-space: nowrap;      /* 5 satıra bölünmesin */
+  overflow: hidden;
+  font-size: .86rem;
+  padding: 9px 12px;
+}
+.arama svg { flex: none }
+.ust-sag {
+  margin-left: 0;
+  flex-wrap: wrap;          /* butonlar da sarabilsin */
+  gap: 8px;
+}
+.tarih-cip { display: none }
+
+/* MB1: Çıkış tek başına satıra düşüp 14 px'lik bir bağlantı olarak
+   kalıyordu — parmakla zor. Avatarla birlikte satır sonuna alınır ve
+   dokunma yüksekliği verilir. */
+.ust-sag { width: 100%; justify-content: flex-end; align-items: center }
+/* Sıra: kur, avatar ve Çıkış aynı satırda; sayfa düğmeleri altta. */
+.ust-sag .kur-cip { order: -2; margin-right: auto }
+.ust-sag .avatar, .ust-sag .cikis-btn { order: -1 }
+/* Düğmeler kendi satırında kalsın: taşarsa alt satıra inerler,
+   daraltılıp üst üste binmezler. */
+.ust-sag .disa-btn, .ust-sag .btn-yeni {
+  flex: 0 0 auto; white-space: nowrap;
+  padding: 0 14px; font-size: .84rem; min-height: 42px;
+}
+.ust-sag .disa-btn svg { display: none }
+.ust-sag .cikis-btn {
+  display: flex; align-items: center; min-height: 40px;
+  padding: 0 12px; border: 1px solid var(--cizgi-koyu);
+  border-radius: var(--r-kucuk); font-weight: 600;
+}
+
+/* Alt sekmeler artık üstte sabitlenir (.ust static olduğu için top:0) */
+.alt-sekmeler {
+  top: 0;
+  padding: 0 14px;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   2) ALT NAVİGASYON — ekranın yarısını kaplama sorunu
+   .ray yatay oluyordu ama içindeki .ray-grup column kalıyordu.
+   ───────────────────────────────────────────────────────────── */
+.ray {
+  /* MB1: eşit sütunlar — kural base.html'deki ızgarayla aynı,
+     burada yalnızca telefona özgü ölçüler. */
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  align-items: stretch;
+  height: auto;
+  gap: 2px;
+  padding: 5px 5px calc(5px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid rgba(255,255,255,.12);
+}
+.ray-grup, .ray-oge { display: contents }
+.ray-btn {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 48px;
+  padding: 6px 1px 5px;
+  gap: 3px;
+  border-radius: 12px;
+  justify-content: center;
+}
+.ray-btn svg { width: 21px; height: 21px }
+.ray-btn span { font-size: .63rem; line-height: 1.1; letter-spacing: -.01em }
+.ray-islem { background: rgba(166,107,8,.18) }
+
+/* Uçan alt menüler telefonda gizli kalır — o görevi sayfa içindeki
+   "Satış Hattı / Proforma / Faturalar…" alt sekmeleri görüyor. */
+.ray-ucan { display: none !important }
+
+/* ─────────────────────────────────────────────────────────────
+   3) İÇERİK — alt çubuğun altında kalmasın
+   ───────────────────────────────────────────────────────────── */
+.icerik {
+  padding: 16px 14px 78px;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   4) TABLOLAR — kırpma yerine parmakla yatay kaydırma
+   ───────────────────────────────────────────────────────────── */
+.tablo-kutu {
+  overflow-x: auto !important;
+  -webkit-overflow-scrolling: touch;
+}
+.tablo-kutu table {
+  width: max-content;
+  min-width: 100%;
+}
+.tablo-kutu th,
+.tablo-kutu td { white-space: nowrap }
+
+/* ─────────────────────────────────────────────────────────────
+   5) ÇOK KOLONLU GRID'LER — 2 kolona insin
+   Sadece 3+ kolonlu tanımlar hedeflenir; tek kolonluya dokunulmaz.
+   ───────────────────────────────────────────────────────────── */
+[style*="repeat(3"],
+[style*="repeat(4"],
+[style*="repeat(5"],
+[style*="repeat(6"],
+[style*="1fr 1fr 1fr"] {
+  grid-template-columns: 1fr 1fr !important;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   6) MODALLAR — alttan açılan sayfa hissi, tek elle erişim
+   ───────────────────────────────────────────────────────────── */
+.modal-ortu {
+  padding: 0;
+  align-items: flex-end;
+}
+.modal {
+  width: 100% !important;
+  max-width: 100% !important;
+  max-height: 92vh;
+  border-radius: 14px 14px 0 0;
+}
+.modal-gov { padding: 16px 14px }
+.modal-bas, .modal-alt { padding: 14px }
+.modal-alt { flex-wrap: wrap; gap: 8px }
+
+/* ─────────────────────────────────────────────────────────────
+   7) DOKUNMA ERGONOMİSİ
+   ───────────────────────────────────────────────────────────── */
+button, .btn, .alt-sekme { min-height: 40px }
+input, select, textarea {
+  font-size: 16px;          /* iOS'un otomatik yakınlaştırmasını engeller */
+}
+
+/* Görseller ekranı zorlamasın */
+img, canvas { max-width: 100% }
+
+}
+
+/* Çok dar ekranlar (küçük telefonlar) */
+@media (max-width: 400px) {
+  /* MB1: KPI kartları TEK sütuna inmiyor artık — beş kart ekranı
+     boydan boya dolduruyor, listeye inmek için uzun kaydırma
+     gerekiyordu. İki sütun 360 px'de de rahat okunuyor. */
+  .ray-btn span { font-size: .58rem }
+}
+@media (max-width: 330px) {
+  .kpiler { grid-template-columns: 1fr !important }
+}
