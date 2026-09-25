@@ -1,0 +1,2450 @@
+{% extends "base.html" %}
+{% block title %}Cari{% endblock %}
+
+{% block header_right %}
+<div class="disa">
+  <button class="disa-btn" onclick="disaAc(event, 'cari')" title="Dışa aktar">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M12 3v12M8 11l4 4 4-4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>
+    Dışa Aktar
+  </button>
+  <div class="disa-menu" id="disaMenu-cari">
+    <button onclick="disaAktar('cari','xlsx')"><span style="background:#1D6F42">XLS</span> Excel indir</button>
+    <button onclick="disaAktar('cari','pdf')"><span style="background:#B23A2E">PDF</span> PDF indir</button>
+  </div>
+</div>
+{% if menu_admin or menu_yetki.get('cari') == 'yazma' %}
+<button class="btn-yeni" onclick="yeniAc()">
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 5v14M5 12h14"/></svg>
+  Yeni Cari
+</button>
+{% endif %}
+{% endblock %}
+
+{% block head %}
+<style>
+  .arac-cubugu{display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap}
+  .parcali{display:flex;background:var(--notr-bg);border-radius:var(--r-kucuk);padding:3px}
+  .parcali button{border:0;background:transparent;padding:7px 15px;border-radius:6px;font-weight:600;font-size:.84rem;color:var(--soluk)}
+  .parcali button.aktif{background:var(--yuzey);color:var(--murekkep);box-shadow:0 1px 3px rgba(0,0,0,.08)}
+  .suz{margin-left:auto}
+  .suz input{border:1px solid var(--cizgi-koyu);border-radius:var(--r-kucuk);padding:7px 11px;font-family:var(--govde);font-size:.85rem;min-width:220px}
+  .suz input:focus{outline:none;border-color:var(--verde);box-shadow:0 0 0 3px var(--verde-acik)}
+  tbody tr{cursor:pointer}
+  .ekstre-satir{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--cizgi);font-size:.84rem}
+  .ekstre-satir:last-child{border-bottom:0}
+  .ekstre-satir .t{font-family:var(--mono);font-size:.74rem;color:var(--soluk);width:74px;flex:none}
+  .ekstre-satir .tut{margin-left:auto;font-family:var(--mono);font-weight:600;white-space:nowrap}
+  .ekstre-satir .tut.borc{color:var(--kirmizi)}
+  .ekstre-satir .tut.alacak{color:var(--verde)}
+  .hsil{border:0;background:transparent;color:var(--cizgi-koyu);font-size:.85rem;cursor:pointer;padding:0 2px}
+  .hsil:hover{color:var(--kirmizi)}
+  .not{border-radius:var(--r-kucuk);padding:9px 12px;font-size:.8rem;margin-bottom:12px;background:var(--verde-acik);color:var(--verde)}
+  .f2{grid-template-columns:1fr 1fr} .f3{grid-template-columns:1fr 1fr 1fr}
+  /* ── CRM bölümleri ── */
+  .crm-bas{font-size:.8rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
+    color:var(--soluk);margin:14px 0 6px;display:flex;align-items:center;gap:8px}
+  .crm-liste{border:1px solid var(--cizgi);border-radius:var(--r-kucuk);overflow:hidden}
+  .crm-akt,.crm-kisi,.crm-takip{display:grid;grid-template-columns:64px 1fr auto;
+    gap:10px;align-items:start;padding:8px 12px;border-bottom:1px solid var(--cizgi);font-size:.85rem}
+  .crm-akt:last-child,.crm-kisi:last-child,.crm-takip:last-child{border-bottom:none}
+  .crm-kisi{grid-template-columns:1fr auto}
+  .crm-akt .t,.crm-takip .t{font-variant-numeric:tabular-nums;color:var(--soluk);font-size:.78rem}
+  .crm-akt .alt,.crm-kisi .alt,.crm-takip .alt{color:var(--soluk);font-size:.75rem;margin-top:2px}
+  .crm-tip{font-size:.72rem;color:var(--soluk);margin-right:6px}
+  /* Vadesi geçmiş takip — göze batmalı, yoksa hatırlatma işe yaramaz */
+  .crm-takip{background:var(--verde-acik)}
+  .crm-takip.gec{background:var(--kirmizi-bg)}
+  .crm-takip.gec .t{color:var(--kirmizi);font-weight:700}
+  .crm-rozet{font-size:.65rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;
+    padding:2px 6px;border-radius:20px;background:var(--verde-acik);color:var(--verde-koyu)}
+  .crm-mini{background:none;border:1px solid var(--cizgi-koyu);border-radius:var(--r-kucuk);
+    padding:3px 9px;font-family:var(--govde);font-size:.72rem;cursor:pointer;color:var(--murekkep)}
+  .crm-mini:hover{border-color:var(--verde);color:var(--verde-koyu)}
+  /* ── Açık faturalar (TT1) ── */
+  .af-satir{display:grid;grid-template-columns:22px 1fr auto;gap:8px;align-items:center;
+    padding:8px 12px;border-bottom:1px solid var(--cizgi);font-size:.85rem}
+  .af-satir:last-child{border-bottom:none}
+  .af-satir input{width:15px;height:15px;cursor:pointer;margin:0}
+  .af-satir .alt{color:var(--soluk);font-size:.75rem;margin-top:2px}
+  .af-satir .gec{color:var(--kirmizi);font-weight:600}
+  .af-satir .tut{font-family:var(--mono);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+  .af-alt{display:flex;justify-content:space-between;align-items:center;gap:10px;
+    padding:9px 12px;background:var(--notr-bg);font-size:.8rem}
+  /* ── Zaman çizelgesi ── */
+  .zc{position:relative;padding:4px 0 4px 18px}
+  .zc::before{content:'';position:absolute;left:5px;top:10px;bottom:10px;width:1px;background:var(--cizgi-koyu)}
+  .zc-o{position:relative;padding:6px 0 6px 6px;font-size:.84rem}
+  .zc-o::before{content:'';position:absolute;left:-17px;top:12px;width:9px;height:9px;border-radius:50%;
+    background:var(--yuzey);border:2px solid var(--zc-renk,var(--soluk))}
+  .zc-o .alt{color:var(--soluk);font-size:.75rem;margin-top:1px}
+  .zc-o .t{font-variant-numeric:tabular-nums;color:var(--soluk);font-size:.75rem;margin-right:6px}
+  .zc-o a{color:inherit;text-decoration:underline;text-decoration-color:var(--cizgi-koyu);text-underline-offset:2px}
+  .modal-ortu{position:fixed;inset:0;background:rgba(25,28,26,.4);display:none;z-index:45;place-items:center;padding:20px}
+  .modal-ortu.acik{display:grid}
+  .modal{width:640px;max-width:100%;background:var(--yuzey);border-radius:14px;box-shadow:0 24px 70px rgba(25,28,26,.3);overflow:hidden;max-height:92vh;display:flex;flex-direction:column}
+  .modal-bas{padding:18px 22px 0}
+  .modal-bas h3{font-family:var(--baslik);font-weight:700;font-size:1.15rem}
+  .modal-bas p{color:var(--soluk);font-size:.85rem;margin-top:3px}
+  .modal-gov{padding:18px 22px;overflow-y:auto}
+  .form-satir{display:grid;gap:12px;margin-bottom:12px}
+  .f2{grid-template-columns:1fr 1fr} .f3{grid-template-columns:1fr 1fr 1fr}
+  .form-alan label{display:block;font-size:.72rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--soluk);margin-bottom:5px}
+  .form-alan input,.form-alan select{width:100%;border:1px solid var(--cizgi-koyu);border-radius:var(--r-kucuk);padding:9px 11px;font-family:var(--govde);font-size:.9rem;background:var(--yuzey)}
+  .form-alan input:focus,.form-alan select:focus{outline:none;border-color:var(--verde);box-shadow:0 0 0 3px var(--verde-acik)}
+  .onay{display:flex;align-items:center;gap:8px;font-size:.85rem;margin-bottom:12px}
+  .onay input{width:auto}
+  .modal-alt{padding:14px 22px 20px;display:flex;gap:10px;justify-content:flex-end;border-top:1px solid var(--cizgi)}
+  .iptal-btn{border:1px solid var(--cizgi-koyu);background:var(--yuzey);border-radius:var(--r-kucuk);padding:10px 18px;font-weight:600}
+</style>
+{% endblock %}
+
+{% block content %}
+<h1 class="g-baslik">Cari</h1>
+<p class="g-alt">Müşteri ve tedarikçi kayıtları. Satıra tıkla — bakiye, ekstre ve iletişim bilgileri sağ panelde.</p>
+<svg class="damar" viewBox="0 0 190 10" aria-hidden="true">
+  <path d="M0 6 C 25 2, 45 9, 70 5 S 120 1, 150 6 S 180 8, 190 4"/>
+  <path class="d2" d="M0 8 C 30 5, 60 10, 95 6 S 160 3, 190 7"/>
+</svg>
+
+<div class="kpiler" style="grid-template-columns:repeat(4,1fr)">
+  <div class="kpi"><label>Müşteri</label><div class="deger" id="kMusteri">—</div><div class="ek" id="kMusteriEk">kayıtlı</div></div>
+  <div class="kpi"><label>Tedarikçi / Üretici</label><div class="deger" id="kTedarikci">—</div><div class="ek" id="kTedarikciEk">kayıtlı</div></div>
+  <div class="kpi"><label>Net Alacak</label><div class="deger" id="kAlacak">—</div><div class="ek" id="kAlacakEk">—</div></div>
+  <!-- C360: portföydeki çekler. Çek alınınca cari borcu düşer ama
+       para henüz gelmemiştir; bu kutu olmadan risk görünmüyordu. -->
+  <div class="kpi"><label>Tahsil Edilmemiş Çek</label><div class="deger" id="kCek">—</div><div class="ek" id="kCekEk">—</div></div>
+</div>
+
+<div class="arac-cubugu">
+  <div class="parcali" id="tipSecim">
+    <button class="aktif" data-t="">Tümü</button>
+    <button data-t="Müşteri">Müşteri</button>
+    <button data-t="Tedarikçi">Tedarikçi</button>
+    <button data-t="Üretici">Üretici</button>
+  </div>
+  <div class="suz"><input id="ara" placeholder="Ünvan, ülke, telefon ara…" autocomplete="off"></div>
+</div>
+
+<div class="tablo-kutu">
+  <table>
+    <thead><tr><th>Ünvan</th><th>Tip</th><th>Ülke</th><th>İletişim</th><th>Son Hareket</th><th class="sag">Net Bakiye</th></tr></thead>
+    <tbody id="govde"><tr><td colspan="6" class="yukleniyor">Yükleniyor…</td></tr></tbody>
+  </table>
+</div>
+
+<!-- Tahsilat / Ödeme modalı -->
+<div class="modal-ortu" id="secModal" onclick="if(event.target===this)cariSecKapat()">
+  <div class="modal" style="width:520px" role="dialog" aria-label="Cari seç">
+    <div class="modal-bas">
+      <h3 id="secBaslik">Cari Seç</h3>
+      <p id="secAlt">İşleme devam etmek için bir cari hesap seçin</p>
+    </div>
+    <div class="modal-gov">
+      <div class="form-alan" style="margin-bottom:10px">
+        <label>Ara</label>
+        <input id="secAra" data-buyuk-harf="hayir" placeholder="Ünvan veya cari kodu yazın…" oninput="cariSecSuz()" autocomplete="off">
+      </div>
+      <div id="secListe" style="max-height:320px;overflow-y:auto;border:1px solid var(--cizgi);border-radius:var(--r-kucuk)"></div>
+    </div>
+    <div class="modal-alt">
+      <button class="blok-btn" onclick="cariSecKapat()">Vazgeç</button>
+    </div>
+  </div>
+</div>
+
+<!-- YAMA E3 — EKSTRE SEÇENEKLERİ
+     Eskiden await soruSor()/await onayla() kullanılıyordu; PWA/masaüstü kipinde
+     bu çağrılar engellenip null döndüğü için ekstre HİÇ AÇILMIYORDU.
+     Sistemin geri kalanıyla aynı kip desenine geçildi. -->
+<div class="modal-ortu" id="ekstreModal" onclick="if(event.target===this)ekstreKapat()">
+  <div class="modal" style="width:520px" role="dialog" aria-label="Ekstre seçenekleri">
+    <div class="modal-bas">
+      <h3>Ekstre Seçenekleri</h3>
+      <p id="ekstreAlt">—</p>
+    </div>
+    <div class="modal-gov">
+      <div class="form-satir">
+        <div class="form-alan">
+          <label>Para Birimi</label>
+          <select id="eksDoviz" onchange="ekstreKipGoster()">
+            <option value="TRY">TRY — Türk Lirası</option>
+            <option value="USD">USD — Amerikan Doları</option>
+            <option value="EUR">EUR — Euro</option>
+          </select>
+        </div>
+        <div class="form-alan" id="eksKurAlan">
+          <label>Kur Esası</label>
+          <select id="eksKurModu">
+            <option value="islem">İşlem günü kuru</option>
+            <option value="guncel">Güncel kur</option>
+          </select>
+        </div>
+
+      <!-- İŞLEM TÜRÜ SÜZGECİ (ET1).
+           Ekstre tüm hareketleri döküyordu; "sadece nakit ödemeler"
+           ya da "sadece verilen çekler" görmenin yolu yoktu.
+           Boş bırakılırsa TÜMÜ gelir — varsayılan davranış değişmez. -->
+      <div class="form-alan" style="margin-top:12px">
+        <label>İşlem Türü (boş = tümü)</label>
+        <div id="eksTipler" style="display:grid;grid-template-columns:1fr 1fr;
+             gap:4px 10px;max-height:190px;overflow:auto;border:1px solid var(--cizgi);
+             border-radius:var(--r-kucuk);padding:9px 11px"></div>
+        <div style="display:flex;gap:8px;margin-top:6px">
+          <button type="button" class="mini-btn" onclick="eksTipHepsi(true)">Tümünü seç</button>
+          <button type="button" class="mini-btn" onclick="eksTipHepsi(false)">Temizle</button>
+        </div>
+      </div>
+      </div>
+      <div id="eksAciklama" style="font-size:.79rem;color:var(--soluk);
+           line-height:1.5;background:var(--notr-bg);border-radius:8px;padding:10px 12px"></div>
+    </div>
+    <div class="modal-alt">
+      <button class="iptal-btn" onclick="ekstreKapat()">Vazgeç</button>
+      <button class="btn-yeni" onclick="ekstreAc()">Ekstreyi Aç</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-ortu" id="tahModal" onclick="if(event.target===this)tahsilatKapat()">
+  <div class="modal" style="width:520px" role="dialog" aria-label="Tahsilat">
+    <div class="modal-bas">
+      <h3 id="tBaslik">Tahsilat Gir</h3>
+      <p id="tAlt">—</p>
+    </div>
+    <div class="modal-gov">
+      <div class="not" id="tNot" style="display:none"></div>
+      <div class="form-alan" style="margin-bottom:12px">
+        <label>Kapatılacak fatura</label>
+        <select id="tFatura" onchange="faturaSecildi()"><option value="">— fatura seçilmeden (serbest hareket) —</option></select>
+      </div>
+      <div class="form-satir f2">
+        <div class="form-alan"><label>Tutar</label><input id="tTutar" type="number" step="0.01"></div>
+        <div class="form-alan"><label>Kasa</label><select id="tKasa"></select></div>
+      </div>
+      <div class="form-satir f2">
+        <div class="form-alan"><label>Tarih</label><input id="tTarih" type="date"></div>
+        <div class="form-alan"><label>Evrak No</label><input id="tEvrak" placeholder="opsiyonel"></div>
+      </div>
+      <div class="form-alan"><label>Açıklama</label><input id="tAciklama" placeholder="opsiyonel"></div>
+    </div>
+    <div class="modal-alt">
+      <button class="iptal-btn" onclick="tahsilatKapat()">Vazgeç</button>
+      <button class="btn-yeni" id="tKaydet" onclick="tahsilatKaydet()">Kaydet</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toplu tahsilat (TT1) -->
+<div class="modal-ortu" id="ttModal" onclick="if(event.target===this)ttKapat()">
+  <div class="modal" style="width:560px" role="dialog" aria-label="Tek ödemeyle kapat">
+    <div class="modal-bas">
+      <h3>Tek ödemeyle kapat</h3>
+      <p id="ttAlt">—</p>
+    </div>
+    <div class="modal-gov">
+      <div class="form-satir f3">
+        <div class="form-alan"><label>Gelen tutar</label><input id="ttTutar" type="number" step="0.01" oninput="ttOnizle()"></div>
+        <div class="form-alan"><label>Döviz</label>
+          <select id="ttDoviz" onchange="ttOnizle()"><option>USD</option><option>EUR</option><option>TRY</option></select></div>
+        <div class="form-alan" id="ttKurAlan"><label>Kur (opsiyonel)</label><input id="ttKur" type="number" step="0.0001" placeholder="TCMB"></div>
+      </div>
+      <div class="form-alan" style="margin-bottom:12px"><label>Kasa / Banka <span style="color:var(--kirmizi)">*</span></label>
+        <select id="ttKasa"></select></div>
+      <div class="form-satir f2">
+        <div class="form-alan"><label>Evrak / Havale No</label><input id="ttEvrak" placeholder="opsiyonel"></div>
+        <div class="form-alan"><label>Açıklama</label><input id="ttAciklama" placeholder="opsiyonel"></div>
+      </div>
+      <label style="display:block;font-size:.72rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--soluk);margin:6px 0 4px">Dağıtım — vadesi en eski önce</label>
+      <div id="ttOnizleme"></div>
+    </div>
+    <div class="modal-alt">
+      <button class="iptal-btn" onclick="ttKapat()">Vazgeç</button>
+      <button class="btn-yeni" id="ttKaydet" onclick="ttKaydet()">Tahsilatı Kaydet</button>
+    </div>
+  </div>
+</div>
+
+<!-- Cari hareket modalı -->
+<div class="modal-ortu" id="harModal" onclick="if(event.target===this)hareketKapat()">
+  <div class="modal" style="width:560px" role="dialog" aria-label="Cari hareket">
+    <div class="modal-bas">
+      <h3>Cari Hareket Ekle</h3>
+      <p id="harAlt">—</p>
+    </div>
+    <div class="modal-gov">
+      <div class="not" id="harNot">—</div>
+      <div class="form-satir f2">
+        <div class="form-alan"><label>İşlem Tipi</label>
+          <select id="hIslem" onchange="hareketTipiDegisti()">
+            <optgroup label="Açılış">
+              <!-- DEVİR İKİ YÖNLÜ (AB1).
+                   Eski sistemden aktarırken carinin önceki durumu
+                   BORÇ da olabilir. Tek seçenek varken hep alacak
+                   yazılıyordu; diğer tiplerde zaten (borç)/(alacak)
+                   ayrımı vardı, açılışta yoktu. -->
+              <option value="Acilis Bakiyesi (Borc)">Açılış Bakiyesi (borç — bizden alacaklı değil, o borçlu)</option>
+              <option value="Acilis Bakiyesi (Alacak)">Açılış Bakiyesi (alacak — biz borçluyuz)</option>
+            </optgroup>
+            <optgroup label="Fatura">
+              <option value="Fatura (Satis)">Satış Faturası (borç)</option>
+              <option value="Fatura (Alis)">Alış Faturası (alacak)</option>
+            </optgroup>
+            <optgroup label="Tahsilat / Ödeme">
+              <option value="Tahsilat">Tahsilat</option>
+              <option value="Odeme">Ödeme</option>
+              <!-- ÇEK DE BİR TAHSİLAT/ÖDEME ARACI (CK1).
+                   Seçilince çek modülü ön dolu açılır; form burada
+                   TEKRARLANMAZ, yoksa iki ayrı gerçek olurdu. -->
+              <option value="__cek_alinan">Alınan Çek →</option>
+              <option value="__cek_verilen">Verilen Çek →</option>
+              <option value="Avans Tahsilati">Avans Tahsilatı</option>
+              <option value="Avans Odemesi">Avans Ödemesi</option>
+            </optgroup>
+            <optgroup label="Düzeltme">
+              <option value="Vade Farki (Borc)">Vade Farkı (borç)</option>
+              <option value="Vade Farki (Alacak)">Vade Farkı (alacak)</option>
+              <option value="Kur Farki (Borc)">Kur Farkı (borç)</option>
+              <option value="Kur Farki (Alacak)">Kur Farkı (alacak)</option>
+              <option value="Iade (Satis)">İade (satış)</option>
+              <option value="Iade (Alis)">İade (alış)</option>
+            </optgroup>
+            <optgroup label="Transfer">
+              <option value="Bakiye Transfer">Bakiye Transfer</option>
+              <option value="Mahsup">Mahsup</option>
+            </optgroup>
+          </select>
+        </div>
+        <div class="form-alan"><label>Tutar <span style="color:var(--kirmizi)">*</span></label><input id="hTutar" type="number" step="0.01" oninput="kdvOnizle()"></div>
+      </div>
+
+      <!-- SK1 — SÖZLEŞME KURU
+           Sunucu elle kuru zaten kabul ediyordu ama formda giriş yolu
+           yoktu; özellik erişilemez durumdaydı. GİB özelgesi: sözleşmede
+           taraflarca belirlenen kur varsa O geçerli, yoksa fatura
+           tarihindeki TCMB döviz alış kuru. -->
+      <div id="hKurAlan" style="display:none">
+        <div style="padding:8px 10px;background:var(--notr-bg);border-radius:8px;margin-bottom:10px">
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:.83rem">
+            <input type="checkbox" id="hSozlesmeKur" onchange="sozlesmeKurDegisti()"
+                   style="width:15px;height:15px;cursor:pointer">
+            <strong>Sözleşme kuru kullan</strong>
+            <span style="color:var(--soluk);font-weight:400">(TCMB dışı)</span>
+          </label>
+          <div id="hKurDetay" style="display:none;margin-top:8px">
+            <div class="form-satir f2">
+              <div class="form-alan"><label>Kur <span style="color:var(--kirmizi)">*</span></label>
+                <input id="hKur" type="number" step="0.0001" placeholder="52,0000"></div>
+              <div class="form-alan"><label>Gerekçe <span style="color:var(--kirmizi)">*</span></label>
+                <input id="hKurGerekce" maxlength="200"
+                       placeholder="Sözleşme madde 4 — sabit kur"></div>
+            </div>
+            <div style="font-size:.75rem;color:var(--soluk);line-height:1.5">
+              Gerekçe <strong>zorunludur</strong> ve belgede görünür. Sözleşme kuru
+              kullanıldığında fatura üzerinde belirtilmelidir.
+            </div>
+          </div>
+          <div id="hTcmbNot" style="font-size:.75rem;color:var(--soluk);margin-top:4px"></div>
+        </div>
+      </div>
+
+      <!-- KDV — yalnızca fatura nitelikli işlemlerde görünür -->
+      <div id="hKdvAlan" style="display:none">
+        <div class="form-satir f2">
+          <div class="form-alan"><label>KDV Oranı</label>
+            <div style="display:flex;gap:8px;align-items:center">
+              <select id="hKdvOranSec" onchange="kdvOranDegisti()" style="flex:1">
+                <option value="20" selected>%20 — genel oran</option>
+                <option value="10">%10 — indirimli</option>
+                <option value="1">%1 — temel gıda vb.</option>
+                <option value="0">%0 — ihracat / istisna</option>
+                <option value="diger">Diğer oran…</option>
+              </select>
+              <div id="hKdvOranSerbest" style="display:none;align-items:center;gap:5px">
+                <input id="hKdvOran" type="number" step="0.1" min="0" max="100" value="20"
+                       data-buyuk-harf="hayir" oninput="kdvOnizle()" style="width:78px;text-align:right">
+                <span style="color:var(--soluk);font-weight:600">%</span>
+              </div>
+            </div>
+          </div>
+          <div class="form-alan"><label>KDV Durumu</label>
+            <select id="hKdvDahil" onchange="kdvOnizle()">
+              <option value="0">Hariç — KDV üstüne eklenir</option>
+              <option value="1">Dahil — tutar KDV içeriyor</option>
+            </select>
+          </div>
+        </div>
+        <div id="hKdvOnizle" style="font-size:.82rem;color:var(--soluk);line-height:1.7;
+             background:var(--kagit);border:1px solid var(--cizgi);border-radius:var(--r-kucuk);
+             padding:9px 12px;margin-bottom:12px">—</div>
+      </div>
+
+      <!-- Transfer alanları -->
+      <div id="hTransferAlan" style="display:none">
+        <div class="form-satir f3">
+          <div class="form-alan"><label>Transfer Yönü</label>
+            <select id="hTransferYon" onchange="hareketTipiDegisti()">
+              <option value="cari">Başka cariye</option>
+              <option value="siparis">Siparişler arası (avans devri)</option>
+              <option value="kasa">Kasaya</option>
+            </select>
+          </div>
+          <div class="form-alan" id="hTransferTurAlan"><label>Taşınan Bakiye</label>
+            <select id="hTransferTur" onchange="hareketTipiDegisti()">
+              <option value="alacak">Alacak (bizim borcumuz)</option>
+              <option value="borc">Borç (bize borcu)</option>
+            </select>
+          </div>
+          <div class="form-alan" id="hHedefAlan"><label>Hedef</label><select id="hHedef"></select></div>
+        </div>
+        <div id="hAvansAlan" style="display:none">
+          <div class="form-satir f2">
+            <div class="form-alan"><label>Kaynak Sipariş (avansın olduğu)</label>
+              <select id="hAvKaynak" onchange="avansBakiyeGoster()"></select>
+            </div>
+            <div class="form-alan"><label>Hedef Sipariş</label><select id="hAvHedef"></select></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="form-satir f2">
+        <div class="form-alan"><label>Döviz</label>
+          <select id="hDoviz" onchange="kurAlaniGoster()"><option>USD</option><option>EUR</option><option>TRY</option></select>
+        </div>
+        <div class="form-alan"><label>Evrak No</label><input id="hEvrak" placeholder="opsiyonel"></div>
+      </div>
+      <div class="form-satir f2">
+        <!-- BT1 — BELGE TARİHİ
+             Faturanın KESİLDİĞİ gün. Kur bu tarihten alınır (VUK/GİB:
+             dövizli işlemin TL karşılığı fatura tarihindeki TCMB döviz
+             alış kuru ile hesaplanır). Boş bırakılırsa bugün. -->
+        <div class="form-alan"><label>Belge Tarihi
+          <span style="font-weight:400;color:var(--soluk)">· kur bu tarihten</span></label>
+          <input id="hBelgeTarihi" type="date" onchange="belgeTarihiDegisti()"></div>
+        <div class="form-alan"><label>Vade Tarihi
+          <span style="font-weight:400;color:var(--soluk)">· ödeme/tahsilat</span></label>
+          <input id="hVade" type="date"></div>
+      </div>
+      <div class="form-alan" id="hKasaAlan" style="margin-bottom:12px"><label>Kasa / Banka Hesabı</label>
+        <select id="hKasa"><option value="">— kasa seçin (zorunlu) —</option></select>
+        <div style="font-size:.72rem;color:var(--soluk);margin-top:4px">Tahsilatta kasaya giriş, ödemede çıkış kaydı otomatik oluşur.
+        <strong>Zorunludur</strong> — para takip etmediğiniz bir hesaba geliyorsa önce o hesabı kasa olarak tanımlayın.</div>
+      </div>
+      <!-- KAPATILACAK FATURA (BF1).
+           Eskiden bu seçim YALNIZCA ayrı "Tahsilat / Ödeme"
+           formunda vardı; o formda ise DÖVİZ seçimi yoktu. İki
+           form da işi yarım yapıyordu. Seçim buraya taşındı,
+           tahsilat düğmesi de bu formu açıyor. -->
+      <div class="form-alan" id="hFaturaAlan" style="margin-bottom:12px;display:none">
+        <label>Kapatılacak Fatura / Alış</label>
+        <select id="hFatura" onchange="hFaturaSecildi()">
+          <option value="">— fatura seçilmeden (serbest hareket) —</option>
+        </select>
+        <div id="hFaturaNot" style="font-size:.76rem;color:var(--soluk);margin-top:4px"></div>
+      </div>
+
+      <!-- KUR FARKI: hesaplamak ile CARİYE İŞLEMEK ayrı şeylerdir.
+           Varsayılan KAPALI — bir muhasebe kaydını sessizce
+           oluşturmak, oluşturmamaktan daha zararlıdır. -->
+      <div class="form-alan" id="hKurFarkiAlan" style="margin-bottom:12px;display:none">
+        <label style="display:flex;align-items:flex-start;gap:9px;cursor:pointer;
+               font-weight:400;text-transform:none;letter-spacing:0;font-size:.88rem">
+          <input type="checkbox" id="hKurFarkiIslet" style="margin-top:3px">
+          <span>
+            <strong>Kur farkını cari hesaba işle</strong>
+            <span id="hKurFarkiTutar" style="color:var(--soluk)"></span>
+            <span style="display:block;font-size:.74rem;color:var(--soluk);margin-top:3px">
+              İşaretlemezseniz kur farkı yalnızca <strong>hesaplanır ve bildirilir</strong>;
+              cari hesaba kayıt düşmez.
+            </span>
+          </span>
+        </label>
+      </div>
+      <div class="form-alan" id="hSiparisAlan" style="margin-bottom:12px"><label>Sipariş (opsiyonel)</label>
+        <select id="hSiparisSec"><option value="">— sipariş bağlama —</option></select>
+      </div>
+      <div class="form-alan"><label>Açıklama</label><input id="hAciklama" placeholder="opsiyonel"></div>
+    </div>
+    <div class="modal-alt">
+      <button class="iptal-btn" onclick="hareketKapat()">Vazgeç</button>
+      <button class="btn-yeni" id="hKaydet" onclick="hareketKaydet()">Kaydet</button>
+    </div>
+  </div>
+</div>
+
+<!-- Cari modalı -->
+<div class="modal-ortu" id="modal" onclick="if(event.target===this)modalKapat()">
+  <div class="modal" role="dialog" aria-label="Cari">
+    <div class="modal-bas">
+      <h3 id="mBaslik">Yeni Cari</h3>
+      <p>Müşteri veya tedarikçi kaydı. Proforma, sipariş ve faturalarda bu ünvan kullanılır.</p>
+    </div>
+    <div class="modal-gov">
+      <div class="form-satir f2">
+        <div class="form-alan"><label>Ünvan <span style="color:var(--kirmizi)">*</span></label><input id="cUnvan" placeholder="ABC Marble LLC"></div>
+        <div class="form-alan"><label>Rol <span style="font-weight:400;color:var(--soluk)">(birden çok seçilebilir)</span></label>
+          <div id="cRoller" style="display:flex;gap:12px;flex-wrap:wrap;padding:7px 0">
+            <!-- R1: Bir cari aynı anda müşteri VE tedarikçi olabilir.
+                 Eskiden tek seçimli <select> vardı; veri katmanı
+                 virgüllü değeri zaten destekliyordu, form kilitliyordu. -->
+            <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-weight:400">
+              <input type="checkbox" class="rol-kutu" value="Müşteri" onchange="tipDegisti()"
+                     style="width:15px;height:15px;cursor:pointer"> Müşteri</label>
+            <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-weight:400">
+              <input type="checkbox" class="rol-kutu" value="Tedarikçi" onchange="tipDegisti()"
+                     style="width:15px;height:15px;cursor:pointer"> Tedarikçi</label>
+            <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-weight:400">
+              <input type="checkbox" class="rol-kutu" value="Üretici" onchange="tipDegisti()"
+                     style="width:15px;height:15px;cursor:pointer"> Üretici</label>
+            <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-weight:400">
+              <input type="checkbox" class="rol-kutu" value="Acente" onchange="tipDegisti()"
+                     style="width:15px;height:15px;cursor:pointer"> Acente</label>
+          </div>
+          <input type="hidden" id="cTip" value="Müşteri">
+        </div>
+      </div>
+      <div class="form-satir f3">
+        <div class="form-alan"><label>Ülke</label>
+          <select id="cUlke"></select>
+        </div>
+        <div class="form-alan"><label>Telefon</label><input id="cTelefon" placeholder="+1 …"></div>
+        <div class="form-alan"><label>E-posta</label><input id="cEmail" type="email" placeholder="info@…"></div>
+      </div>
+      <div class="form-alan" style="margin-bottom:12px"><label>Adres</label><input id="cAdres" placeholder="opsiyonel"></div>
+
+      <!-- F1-1: Model ve API'de hazır olan ama formda hiç bulunmayan alanlar.
+           Vergi bilgisi olmadan yurtiçi fatura kesilemiyor; yetkili adı
+           olmadan proforma e-postası "Sayın Yetkili" gidiyor; IBAN olmadan
+           tedarikçi ödemesi sistem dışından aranıyordu. -->
+      <div class="form-satir f2">
+        <div class="form-alan"><label>Vergi Dairesi</label>
+          <input id="cVergiDairesi" placeholder="Merkezefendi V.D."></div>
+        <div class="form-alan"><label>Vergi / TC No</label>
+          <input id="cVergiNo" data-buyuk-harf="hayir" placeholder="1234567890"></div>
+      </div>
+      <div class="form-satir f2">
+        <div class="form-alan"><label>Yetkili Kişi</label>
+          <input id="cYetkili" placeholder="Satın alma sorumlusu — belgelerde hitap için"></div>
+        <div class="form-alan"><label>IBAN</label>
+          <input id="cIban" data-buyuk-harf="hayir" placeholder="TR00 0000 0000 0000 0000 0000 00"></div>
+      </div>
+
+      <div class="form-satir f2">
+        <div class="form-alan"><label>Para Birimi</label>
+          <select id="cDoviz"><option>USD</option><option>EUR</option><option>TRY</option></select>
+        </div>
+        <div class="form-alan"><label>Risk Limiti</label><input id="cRisk" type="number" step="0.01" placeholder="opsiyonel"></div>
+      </div>
+      <div class="form-satir f2">
+        <!-- F2-2: "60 gün vadeli müşteri" bilgisi sistemde yoktu; her
+             faturada vade elle hesaplanıyordu. Yaşlandırma raporu da
+             bu bilgiden beslenir. -->
+        <div class="form-alan"><label>Ödeme Vadesi (gün)</label>
+          <input id="cVade" type="number" min="0" step="1" data-buyuk-harf="hayir"
+                 placeholder="60 — fatura vadesi buna göre hesaplanır"></div>
+        <div class="form-alan"></div>
+      </div>
+      <!-- CRM-B: sahiplik ve görünürlük. Görünürlük VARSAYILAN OLARAK
+           KAPALI; işaretlemeyi unutan biri müşteriyi gizli bırakır,
+           tersi olsaydı gizli kalması gereken müşteri sessizce
+           herkese açılırdı. -->
+      <div class="form-satir f2">
+        <div class="form-alan"><label>Satış Sorumlusu</label>
+          <select id="cSorumlu"><option value="">— atanmadı —</option></select></div>
+        <div class="form-alan"><label>Görünürlük</label>
+          <select id="cGorunurluk">
+            <option value="kapali">Kapalı — yalnızca sorumlusu ve yönetici</option>
+            <option value="ortak">Ortak — tüm satış ekibi</option>
+          </select>
+          <div style="font-size:.72rem;color:var(--soluk);margin-top:4px">
+            Kapalı müşteriye başka kişilere de erişim vermek için müşteri
+            detayındaki <strong>Erişim</strong> bölümünü kullanın.</div></div>
+      </div>
+      <div id="tedarikciAlan" style="display:none">
+        <div class="onay">
+          <input type="checkbox" id="cUrunTed">
+          <label for="cUrunTed" style="margin:0;text-transform:none;letter-spacing:0;font-weight:500;font-size:.85rem;color:var(--murekkep)">
+            Ürün tedarikçisi (stok girişlerinde üretici olarak seçilebilir)
+          </label>
+        </div>
+        <div class="form-alan" style="margin-bottom:12px">
+          <label>Üretici Kısaltması</label>
+          <input id="cKisaltma" placeholder="AKD — stok kodlarında kullanılır">
+        </div>
+      </div>
+    </div>
+    <div class="modal-alt">
+      <button class="iptal-btn" onclick="modalKapat()">Vazgeç</button>
+      <button class="btn-yeni" id="cKaydet" onclick="cariKaydet()">Kaydet</button>
+    </div>
+  </div>
+</div>
+
+<!-- Sipariş ekstresi modalı -->
+<div class="modal-ortu" id="sipEkstreModal" onclick="if(event.target===this)sipEkstreKapat()">
+  <div class="modal" role="dialog" aria-label="Sipariş ekstresi" style="width:440px;max-width:100%">
+    <div class="modal-bas">
+      <h3>Sipariş Ekstresi</h3>
+      <p id="sipEkstreAlt">—</p>
+    </div>
+    <div class="modal-gov">
+      <div class="not" style="background:var(--mavi-bg);color:var(--mavi)">
+        Yalnızca seçilen siparişe bağlı hareketler dökülür. Hareket kaydederken sipariş seçmeyi unutma.
+      </div>
+      <div class="form-alan"><label>Sipariş</label><select id="sipEkstreSec"></select></div>
+    </div>
+    <div class="modal-alt">
+      <button class="iptal-btn" onclick="sipEkstreKapat()">Vazgeç</button>
+      <button class="btn-yeni" onclick="sipEkstreYazdir()">Ekstreyi Aç ↗</button>
+    </div>
+  </div>
+</div>
+
+<!-- CRM: temas kaydı -->
+<div class="modal-ortu" id="aktiviteModal" onclick="if(event.target===this)aktiviteKapat()">
+  <div class="modal" style="width:520px" role="dialog" aria-label="Temas kaydet">
+    <div class="modal-bas"><h3>Temas Kaydet</h3>
+      <p>Görüşme, e-posta, ziyaret — ve varsa sonraki adım</p></div>
+    <div class="modal-gov">
+      <div class="form-satir f2">
+        <div class="form-alan"><label>Tarih</label>
+          <input id="akTarih" type="date" data-buyuk-harf="hayir"></div>
+        <div class="form-alan"><label>Tür</label>
+          <select id="akTip">
+            <option value="telefon">Telefon</option>
+            <option value="eposta">E-posta</option>
+            <option value="ziyaret">Ziyaret</option>
+            <option value="fuar">Fuar</option>
+            <option value="numune">Numune</option>
+            <option value="teklif">Teklif</option>
+            <option value="diger">Diğer</option>
+          </select></div>
+      </div>
+      <div class="form-satir">
+        <div class="form-alan"><label>Özet <span style="color:var(--kirmizi)">*</span></label>
+          <input id="akOzet" maxlength="200" placeholder="ÖRN. FİYAT GÖRÜŞMESİ"></div>
+      </div>
+      <div class="form-satir">
+        <div class="form-alan"><label>Detay</label>
+          <textarea id="akDetay" rows="3" data-buyuk-harf="hayir"
+            placeholder="Ne konuşuldu, ne söz verildi"></textarea></div>
+      </div>
+      <div class="form-satir f2">
+        <div class="form-alan"><label>Sonraki adım</label>
+          <input id="akAdim" maxlength="200" placeholder="ÖRN. TEKLİF GÖNDER"></div>
+        <div class="form-alan"><label>Ne zaman</label>
+          <input id="akSonTarih" type="date" data-buyuk-harf="hayir"></div>
+      </div>
+      <div style="font-size:.78rem;color:var(--soluk);line-height:1.55;margin-top:8px;
+                  padding-top:8px;border-top:1px solid var(--cizgi)">
+        Sonraki adım girerseniz <strong>tarihi zorunludur</strong> — tarihsiz bir takip
+        hatırlatılamaz, listeye girmez ve unutulur.
+      </div>
+    </div>
+    <div class="modal-alt">
+      <button class="iptal-btn" onclick="aktiviteKapat()">Vazgeç</button>
+      <button class="btn-yeni" onclick="aktiviteKaydet()">Kaydet</button>
+    </div>
+  </div>
+</div>
+
+<!-- CRM: kişi -->
+<div class="modal-ortu" id="kisiModal" onclick="if(event.target===this)kisiKapat()">
+  <div class="modal" style="width:470px" role="dialog" aria-label="Kişi ekle">
+    <div class="modal-bas"><h3>Kişi Ekle</h3>
+      <p>İhracatta satın almacı, lojistik ve muhasebe ayrı kişilerdir</p></div>
+    <div class="modal-gov">
+      <div class="form-satir f2">
+        <div class="form-alan"><label>Ad Soyad <span style="color:var(--kirmizi)">*</span></label>
+          <input id="kiAd" maxlength="120"></div>
+        <div class="form-alan"><label>Görev</label>
+          <input id="kiGorev" maxlength="80" placeholder="SATIN ALMA"></div>
+      </div>
+      <div class="form-satir f2">
+        <div class="form-alan"><label>Telefon</label>
+          <input id="kiTel" maxlength="50" data-buyuk-harf="hayir"></div>
+        <div class="form-alan"><label>E-posta</label>
+          <input id="kiEposta" maxlength="120" data-buyuk-harf="hayir"></div>
+      </div>
+      <label style="display:flex;align-items:center;gap:8px;font-size:.85rem;cursor:pointer">
+        <input type="checkbox" id="kiBirincil"> Birincil kişi (yazışmalarda bu kişi)
+      </label>
+    </div>
+    <div class="modal-alt">
+      <button class="iptal-btn" onclick="kisiKapat()">Vazgeç</button>
+      <button class="btn-yeni" onclick="kisiKaydet()">Kaydet</button>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+/* ═══ SOL RAY KISAYOLLARINDAN GELEN AÇILIŞLAR ═══
+   Sol raydaki "Tahsilat Gir" ve "Cari Hareket Ekle" kısayolları bu sayfaya
+   ?tahsilat=1 / ?hareket=1 ile gelir. Ancak tahsilatAc(id) ve
+   hareketAc(cariId, unvan) bir cari gerektirir — kısayolda henüz seçili cari
+   yoktur. Bu yüzden önce bir seçim penceresi açılır, seçim yapılınca asıl
+   fonksiyon çağrılır.
+   NOT: base.html bu iki fonksiyonu 2,4 saniye boyunca arar; veri (TUM) o
+   sırada henüz yüklenmemiş olabileceği için liste dolana kadar beklenir. */
+let SEC_HEDEF = null;   // 'tahsilat' | 'hareket'
+
+function ilkTahsilatAc() { cariSecAc('tahsilat'); }
+function ilkHareketAc()  { cariSecAc('hareket'); }
+
+function cariSecAc(hedef) {
+  SEC_HEDEF = hedef;
+  document.getElementById('secBaslik').textContent =
+    hedef === 'tahsilat' ? 'Tahsilat / Ödeme — Cari Seç' : 'Cari Hareket — Cari Seç';
+  document.getElementById('secAra').value = '';
+  document.getElementById('secModal').classList.add('acik');
+  cariSecSuz();
+  setTimeout(() => document.getElementById('secAra').focus(), 60);
+}
+
+function cariSecKapat() {
+  document.getElementById('secModal').classList.remove('acik');
+  SEC_HEDEF = null;
+}
+
+function cariSecSuz() {
+  const kutu = document.getElementById('secListe');
+  if (!Array.isArray(TUM) || !TUM.length) {
+    kutu.innerHTML = '<div style="padding:14px;color:var(--soluk);font-size:.86rem">Cari listesi yükleniyor…</div>';
+    // Veri henüz gelmediyse kısa aralıklarla tekrar dene
+    if (!cariSecSuz._bekle) {
+      cariSecSuz._bekle = setInterval(() => {
+        if (Array.isArray(TUM) && TUM.length) {
+          clearInterval(cariSecSuz._bekle); cariSecSuz._bekle = null; cariSecSuz();
+        }
+      }, 200);
+    }
+    return;
+  }
+  const q = (document.getElementById('secAra').value || '').toLocaleLowerCase('tr');
+  const liste = TUM.filter(c => {
+    if (!q) return true;
+    return String(c.unvan || '').toLocaleLowerCase('tr').includes(q)
+        || String(c.id || '').toLocaleLowerCase('tr').includes(q);
+  }).slice(0, 60);
+
+  kutu.innerHTML = liste.length
+    ? liste.map(c => `<button type="button" onclick="cariSecildi('${kacar(c.id)}')"
+        style="display:block;width:100%;text-align:left;border:0;border-bottom:1px solid var(--cizgi);
+               background:transparent;padding:10px 12px;cursor:pointer;font-family:var(--govde)">
+        <b style="display:block;font-size:.88rem;font-weight:600">${kacar(c.unvan || '—')}</b>
+        <small style="display:block;font-size:.75rem;color:var(--soluk);margin-top:1px">${kacar(c.id)}${c.tip ? ' · ' + kacar(c.tip) : ''}</small>
+      </button>`).join('')
+    : '<div style="padding:14px;color:var(--soluk);font-size:.86rem">Eşleşen cari bulunamadı.</div>';
+}
+
+function cariSecildi(id) {
+  const c = TUM.find(x => String(x.id) === String(id));
+  if (!c) { bildir('Cari bulunamadı.', true); return; }
+  const hedef = SEC_HEDEF;
+  cariSecKapat();
+  if (hedef === 'tahsilat') tahsilatAc(c.id);
+  else hareketAc(c.id, c.unvan);
+}
+
+/* ═══ CARİ ═══
+   /api/cari (GET/POST), /api/cari/<id> (PUT/DELETE)
+   Bakiyeler: /api/rapor/yaslandirilmis_cari (tek çağrıda hepsi, TRY → kur_usd ile USD)
+   Ekstre   : /api/cari/<id>/hareketler
+   Tahsilat girişi Kasa ekranında (çift defter orada kurgulu). */
+
+let TUM = [], BAKIYE = {}, KUR = 1, TIP = '', ARA = '', DUZENLENEN = null;
+
+async function yukle() {
+  try {
+    const d = await api('/api/cari?per_page=300');
+    TUM = d.data || [];
+  } catch (e) {
+    document.getElementById('govde').innerHTML = '<tr><td colspan="6" class="bos">Cari verisi alınamadı.</td></tr>';
+    return;
+  }
+  // Bakiyeler — tek çağrı
+  try {
+    const y = await api('/api/rapor/yaslandirilmis_cari');
+    KUR = y.kur_usd || 1;
+    BAKIYE = {};
+    (y.cariler || []).forEach(c => {
+      const gecen = (c.g_0_30_try || 0) + (c.g_31_60_try || 0) + (c.g_61_90_try || 0) + (c.g_90_plus_try || 0);
+      /* YAMA E3b — LİSTE VE ÇEKMECE AYNI SAYIYI GÖSTERSİN.
+         Eskiden TL bakiye BUGÜNKÜ kurla bölünüyordu; çekmece ise
+         hareketlerin ham dövizini topluyordu. Aynı cari için liste
+         −5.483 $, çekmece −6.844 $ diyordu.
+         Artık cari kendi para biriminde ham bakiyeyi kullanır —
+         liste, çekmece ve "işlem günü kuru" ekstresi ÜÇÜ DE aynı. */
+      BAKIYE[c.cari_id] = {
+        net: (c.net_bakiye != null ? c.net_bakiye : (c.net_bakiye_try || 0) / KUR),
+        /* NB1: bakiyenin DÖVİZİ. Yoksa TRY karşılığı USD'ye
+           bölündüğü için USD'dir. Sembolü buradan seçiyoruz;
+           eskiden hep $ basılıyordu ve TRY bakiye dolar gibi
+           görünüyordu. */
+        doviz: (c.net_bakiye != null ? (c.net_bakiye_doviz || 'TRY') : 'USD'),
+        /* DV1: her dövizin neti ayrı. Para birimi USD olan cariye EUR
+           hareket girilince liste "0 $" gösteriyordu. */
+        netler: c.net_bakiyeler || null,
+        /* KPI toplamı farklı dövizleri TOPLAYAMAZ; TL karşılığı / kur. */
+        usd: (c.net_bakiye_try || 0) / KUR,
+        gecen: gecen / KUR };
+    });
+  } catch (e) { BAKIYE = {}; }
+  kpiCiz(); ciz();
+  cekKpiYukle();
+}
+
+/* C360 — son hareket: tarih + kaç gün önce. 180 günü aşan cari
+   soluk kehribar: uzun süredir işlem yok, takip gerekebilir. */
+function sonHareketHucre(t) {
+  if (!t) return '<span style="color:var(--soluk)">—</span>';
+  const gun = Math.floor((Date.now() - new Date(t + 'T00:00:00').getTime()) / 86400000);
+  const eski = gun > 180;
+  return `<span class="mono">${kacar(t.split('-').reverse().join('.'))}</span>`
+    + `<div style="font-size:.72rem;color:${eski ? 'var(--kehribar)' : 'var(--soluk)'}">${
+        gun <= 0 ? 'bugün' : gun + ' gün önce'}</div>`;
+}
+
+async function cekKpiYukle() {
+  const d = document.getElementById('kCek'), e = document.getElementById('kCekEk');
+  try {
+    const o = await api('/api/cek/ozet');
+    const t = Object.entries(o.alinan_toplam || {}).filter(([, v]) => v > 0);
+    d.innerHTML = t.length
+      ? t.map(([dv, v]) => para(v, dv).replace(/ (\S+)$/, '<small>$1</small>')).join('<span style="color:var(--cizgi-koyu)"> · </span>')
+      : '0';
+    const yak = (o.yaklasan_alinan || []).length;
+    e.textContent = `${o.alinan_adet || 0} çek portföyde` + (yak ? ` · ${yak} tanesinin vadesi 30 gün içinde` : '');
+  } catch (x) { d.textContent = '—'; e.textContent = 'görüntüleme yetkisi yok'; }
+}
+
+function kpiCiz() {
+  const m = TUM.filter(cariMusteriMi);
+  const t = TUM.filter(cariTedarikciMi);
+  const netAlacak = Object.values(BAKIYE).reduce((a, b) => a + Math.max(0, b.usd != null ? b.usd : b.net), 0);
+  const gecikmis = Object.values(BAKIYE).reduce((a, b) => a + b.gecen, 0);
+  document.getElementById('kMusteri').textContent = m.length;
+  document.getElementById('kMusteriEk').textContent =
+    [...new Set(m.map(c => c.ulke).filter(Boolean))].length + ' ülke';
+  document.getElementById('kTedarikci').textContent = t.length;
+  document.getElementById('kTedarikciEk').textContent =
+    t.filter(c => c.urun_tedarikcisi).length + ' ürün tedarikçisi';
+  document.getElementById('kAlacak').innerHTML = para(netAlacak).replace(' $', '<small>$</small>');
+  const ek = document.getElementById('kAlacakEk');
+  ek.textContent = gecikmis > 1 ? para(gecikmis) + ' vadesi geçmiş' : 'gecikme yok';
+  ek.className = 'ek ' + (gecikmis > 1 ? 'kotu' : '');
+}
+
+function ciz() {
+  const s = ARA.toLocaleLowerCase('tr');
+  let liste = TUM.filter(c =>
+    /* R1: düz eşitlik yerine İÇERİK araması. Eskiden
+       "Müşteri,Tedarikçi" carisi Müşteri süzgecinde GÖRÜNMÜYORDU. */
+    (!TIP || String(c.cari_tip || '').toLocaleLowerCase('tr')
+              .includes(String(TIP).toLocaleLowerCase('tr'))) &&
+    (!s || [c.unvan, c.ulke, c.telefon, c.email, c.id].filter(Boolean)
+            .join(' ').toLocaleLowerCase('tr').includes(s)));
+  liste.sort((a, b) => (a.unvan || '').localeCompare(b.unvan || '', 'tr'));
+
+  const g = document.getElementById('govde');
+  g.innerHTML = liste.length ? liste.map(c => {
+    const b = BAKIYE[c.id] || { net: 0, gecen: 0 };
+    const gec = b.gecen > 1;
+    const ray = gec ? '--kirmizi' : (cariMusteriMi(c) ? '--verde' : '--cizgi-koyu');
+    const bakRenk = gec ? 'var(--kirmizi)' : (b.net < 0 ? 'var(--soluk)' : 'var(--verde)');
+    const _nl = b.netler ? Object.entries(b.netler).sort() : null;
+    const bakMetin = (_nl && _nl.length)
+      ? _nl.map(([dv, v]) => `<div style="color:${gec ? 'var(--kirmizi)' : (v < 0 ? 'var(--soluk)' : 'var(--verde)')}">${v < 0 ? '−' : ''}${para(Math.abs(v), dv)}</div>`).join('')
+      : `${b.net < 0 ? '−' : ''}${para(Math.abs(b.net), b.doviz)}`;
+    return `
+    <tr style="border-left-color:var(${ray})" onclick="detayAc('${kacar(c.id)}')">
+      <td><strong>${kacar(c.unvan)}</strong>
+        ${c.urun_tedarikcisi ? '<div class="ikincil">ürün tedarikçisi' + (c.uretici_kisaltma ? ' · ' + kacar(c.uretici_kisaltma) : '') + '</div>' : ''}</td>
+      <td>${(c.cari_tip || '—').split(',').map(r => {
+        /* R1: her rol AYRI rozet. Eskiden düz eşitlik vardı ve
+           "Müşteri,Tedarikçi" tek gri rozet olarak görünüyordu. */
+        const t = r.trim();
+        const n = t.toLocaleLowerCase('tr').replace(/ı/g,'i').replace(/ü/g,'u').replace(/ş/g,'s').replace(/ç/g,'c');
+        const renk = n.includes('musteri') ? 'rz-mavi'
+                   : n.includes('uretici') ? 'rz-kehribar'
+                   : n.includes('acente')  ? 'rz-mor' : 'rz-gri';
+        return `<span class="rozet ${renk}" style="margin-right:3px">${kacar(t)}</span>`;
+      }).join('')}</td>
+      <td style="font-size:.85rem">${kacar(c.ulke || '—')}</td>
+      <td style="font-size:.82rem;color:var(--soluk)">
+        ${kacar(c.telefon || '')}${c.telefon && c.email ? '<br>' : ''}${kacar(c.email || '')}
+        ${!c.telefon && !c.email ? '—' : ''}</td>
+      <td style="font-size:.82rem">${sonHareketHucre(c.son_hareket)}</td>
+      <td class="sag mono" style="font-weight:600;color:${bakRenk}">
+        ${bakMetin}
+        ${gec ? '<div style="font-size:.72rem">⚠ ' + para(b.gecen) + ' geçmiş</div>' : ''}</td>
+    </tr>`;
+  }).join('') : '<tr><td colspan="6" class="bos">Cari yok.</td></tr>';
+}
+
+/* ── Çekmece: bakiye + ekstre ── */
+/* YAMA E3 — Ekstre seçenekleri KİP ile (prompt yerine).
+   prompt()/confirm() PWA/masaüstü kipinde engelleniyor ve null
+   dönüyordu; ekstre hiç açılmıyordu. */
+let EKSTRE_CARI = null;
+
+function ekstreSecenek(id) {
+  EKSTRE_CARI = id;
+  const c = TUM.find(x => x.id === id) || {};
+  document.getElementById('ekstreAlt').textContent = c.unvan || id;
+  document.getElementById('eksDoviz').value = c.para_birimi || 'TRY';
+  document.getElementById('eksKurModu').value = 'islem';
+  ekstreKipGoster();
+  document.getElementById('ekstreModal').classList.add('acik');
+
+  /* Tür listesi carinin GERÇEK hareketlerinden doldurulur.
+     Sabit liste yazsaydım yeni bir işlem türü eklendiğinde
+     süzgeçte görünmezdi. */
+  document.getElementById('eksTipler').innerHTML =
+    '<span style="color:var(--soluk);font-size:.8rem">yükleniyor…</span>';
+  api(`/api/cari/${encodeURIComponent(id)}/hareketler`)
+    .then(d => eksTipleriDoldur(d.data || []))
+    .catch(() => eksTipleriDoldur([]));
+}
+
+function ekstreKapat() {
+  document.getElementById('ekstreModal').classList.remove('acik');
+}
+
+/* BT1 — Belge tarihi değişince o günün kurunu göster.
+   Kullanıcı hangi kurun uygulanacağını KAYDETMEDEN ÖNCE görsün. */
+function belgeTarihiDegisti() {
+  const dov = (document.getElementById('hDoviz') || {}).value;
+  if (dov && dov !== 'TRY') tcmbNotGoster(dov);
+}
+
+/* Form açılırken belge tarihi BUGÜN olarak gelir. Geçmiş tarihli
+   belge girenler değiştirir; günlük işlemde ek yük olmaz. */
+function belgeTarihiVarsayilan() {
+  const el = document.getElementById('hBelgeTarihi');
+  if (!el) return;
+  const g = new Date();
+  el.value = g.getFullYear() + '-' + String(g.getMonth() + 1).padStart(2, '0')
+           + '-' + String(g.getDate()).padStart(2, '0');
+}
+
+/* ═══ SÖZLEŞME KURU (SK1) ═══
+   TRY işlemlerde anlamsız olduğu için gizlenir. */
+/* ── KAPATILACAK FATURA (BF1) ── */
+let HAR_ACIK_FATURALAR = [];
+
+async function hFaturalariYukle() {
+  const alan = document.getElementById('hFaturaAlan');
+  const sel = document.getElementById('hFatura');
+  if (!alan || !sel) return;
+  const tip = (document.getElementById('hIslem') || {}).value || '';
+  const tahsilat = tip.includes('Tahsilat');
+  const odeme = tip.includes('Ödeme') || tip.includes('Odeme');
+  if (!tahsilat && !odeme) {
+    alan.style.display = 'none'; sel.value = '';
+    HAR_ACIK_FATURALAR = []; return;
+  }
+  alan.style.display = '';
+  sel.innerHTML = '<option value="">— fatura seçilmeden (serbest hareket) —</option>';
+  document.getElementById('hFaturaNot').textContent = '';
+  try {
+    /* Yön önemli: tahsilat SATIŞ faturalarına, ödeme ALIŞ
+       borçlarına mahsup edilir. */
+    const yon = odeme ? 'alis' : 'satis';
+    const d = await api(`/api/cari/${encodeURIComponent(HAR_CARI)}/acik_faturalar?yon=${yon}`);
+    HAR_ACIK_FATURALAR = d.faturalar || [];
+    HAR_ACIK_FATURALAR.forEach(f => {
+      /* Stok alış borcunun `Fatura` kaydı YOK; önekle işaretlenir
+         ki kaydederken doğru uç noktaya gitsin. */
+      const v = f.kaynak === 'stok_fatura'
+        ? 'STOK:' + (f.fatura_no || f.id) : f.id;
+      const et = f.kaynak === 'stok_fatura' ? ' (stok alışı)' : '';
+      sel.innerHTML += `<option value="${kacar(v)}">${kacar(f.fatura_no || f.id)}${et} · kalan ${para(f.kalan, f.doviz)}</option>`;
+    });
+    if (!HAR_ACIK_FATURALAR.length) {
+      document.getElementById('hFaturaNot').textContent =
+        'Bu carinin açık ' + (odeme ? 'alış borcu' : 'satış faturası') + ' yok.';
+    }
+  } catch (e) { HAR_ACIK_FATURALAR = []; }
+}
+
+/* Fatura seçilince tutar ve dövizi ondan doldur — kullanıcı
+   kalanı elle yazmak zorunda kalmasın, döviz de uyuşsun. */
+function hFaturaSecildi() {
+  const v = document.getElementById('hFatura').value;
+  const not = document.getElementById('hFaturaNot');
+  if (!v) { not.textContent = ''; return; }
+  const f = HAR_ACIK_FATURALAR.find(
+    x => (x.kaynak === 'stok_fatura' ? 'STOK:' + (x.fatura_no || x.id) : x.id) === v);
+  if (!f) return;
+  const tut = document.getElementById('hTutar');
+  if (tut && !tut.value) tut.value = f.kalan;
+  const dov = document.getElementById('hDoviz');
+  /* Dövizi faturanınkine ÖNERİ olarak ayarlar; kullanıcı
+     değiştirebilir. USD borca TRY ödeme meşru bir ihtiyaç —
+     fatura ekranında zaten destekleniyor, burada yasaklamak
+     tutarsızlık olurdu (CD1). */
+  if (dov && f.doviz) { dov.value = f.doviz; kurAlaniGoster(); }
+  faturaDovizNotu();
+}
+
+/* ── FARKLI DÖVİZDE ÖDEME (CD1) ──
+   Fatura dövizi ile ödeme dövizi farklıysa kullanıcı bunu
+   KAYDETMEDEN görmeli. Çevrim sunucuda yapılıyor; burada
+   hesaplasaydım iki yerde iki farklı sonuç riski doğardı —
+   bu projede o hata sınıfını defalarca düzelttik. */
+function faturaDovizNotu() {
+  const not = document.getElementById('hFaturaNot');
+  if (!not) return;
+  const sec = (document.getElementById('hFatura') || {}).value || '';
+  if (!sec) { not.textContent = ''; return; }
+  const f = HAR_ACIK_FATURALAR.find(
+    x => (x.kaynak === 'stok_fatura' ? 'STOK:' + (x.fatura_no || x.id) : x.id) === sec);
+  if (!f) { not.textContent = ''; return; }
+  const odDv = (document.getElementById('hDoviz') || {}).value || f.doviz;
+  const tutar = parseFloat((document.getElementById('hTutar') || {}).value) || 0;
+  let m = `Kalan ${para(f.kalan, f.doviz)}`;
+  if (odDv && odDv !== f.doviz) {
+    m += ` · ${odDv} ödüyorsunuz, borç ${f.doviz} — çevrim işlem günü kuruyla yapılır`;
+  } else if (tutar > Number(f.kalan) + 0.01) {
+    m += ` · fazla girdiniz, fark serbest hareket olur`;
+  }
+  not.textContent = m;
+}
+
+/* Kur farkı kutucuğu YALNIZCA tahsilat/ödemede anlamlıdır:
+   kur farkı ancak bir borç/alacak KAPANIRKEN doğar. Fatura
+   girişinde göstermek, olmayan bir seçenek sunmak olurdu. */
+function kurFarkiAlaniGoster() {
+  const alan = document.getElementById('hKurFarkiAlan');
+  if (!alan) return;
+  /* Alan adı 'hIslem' — ilk sürümde 'hIslemTip' yazmıştım, öyle bir
+     alan yok ve kutucuk hiç görünmüyordu. */
+  const tip = (document.getElementById('hIslem') || {}).value || '';
+  const dov = (document.getElementById('hDoviz') || {}).value || '';
+  const uygun = ['Tahsilat', 'Ödeme', 'Odeme'].some(x => tip.includes(x));
+  /* TRY hareketlerde kur farkı doğmaz — 1 TL her zaman 1 TL. */
+  alan.style.display = (uygun && dov && dov !== 'TRY') ? '' : 'none';
+  if (alan.style.display === 'none') {
+    const k = document.getElementById('hKurFarkiIslet');
+    if (k) k.checked = false;
+  }
+}
+
+function kurAlaniGoster() {
+  kurFarkiAlaniGoster();
+  faturaDovizNotu();
+  const dov = (document.getElementById('hDoviz') || {}).value;
+  const alan = document.getElementById('hKurAlan');
+  if (!alan) return;
+  alan.style.display = (dov && dov !== 'TRY') ? '' : 'none';
+  if (dov === 'TRY') {
+    const k = document.getElementById('hSozlesmeKur');
+    if (k) { k.checked = false; sozlesmeKurDegisti(); }
+  } else {
+    tcmbNotGoster(dov);
+  }
+}
+
+/* Kullanıcı hangi kurun kullanılacağını ÖNCEDEN görsün. */
+async function tcmbNotGoster(doviz) {
+  const not = document.getElementById('hTcmbNot');
+  if (!not) return;
+  const soz = document.getElementById('hSozlesmeKur');
+  if (soz && soz.checked) { not.textContent = ''; return; }
+  try {
+    /* BT1: BELGE TARİHİNİN kuru sorulur, bugünün değil.
+       Geçmiş tarihli fatura girildiğinde kullanıcı o günün kurunu
+       görmeli — kaydedildikten sonra sürpriz olmasın. */
+    const _bt = (document.getElementById('hBelgeTarihi') || {}).value;
+    const d = await api(`/api/doviz_kur?doviz=${encodeURIComponent(doviz)}`
+                        + (_bt ? `&tarih=${encodeURIComponent(_bt)}` : ''));
+    const k = d && (d.alis || d.efektif || d.satis);
+    const _gun = (d && d.tarih && _bt && d.tarih !== _bt)
+      ? ` (${_bt} için kur yok — ${d.tarih} kuru)` : '';
+    not.textContent = k
+      ? `İşaretlemezseniz TCMB döviz alış kuru kullanılır: ${Number(k).toLocaleString('tr-TR',{minimumFractionDigits:4})}${_gun}`
+      : (_bt ? `${_bt} için arşivde kur yok` : '');
+  } catch (e) { not.textContent = ''; }
+}
+
+function sozlesmeKurDegisti() {
+  const acik = document.getElementById('hSozlesmeKur').checked;
+  document.getElementById('hKurDetay').style.display = acik ? '' : 'none';
+  const not = document.getElementById('hTcmbNot');
+  if (acik) { if (not) not.textContent = ''; }
+  else {
+    document.getElementById('hKur').value = '';
+    document.getElementById('hKurGerekce').value = '';
+    tcmbNotGoster((document.getElementById('hDoviz') || {}).value);
+  }
+}
+
+/* EK2 — KUR ESASI SORUSU TERSTİ.
+   Soru YALNIZCA TL ekstrede anlamlı: dövizli hareketler TL'ye orada
+   çevriliyor, hangi kurla çevrileceği seçime bağlı. USD/EUR ekstrede
+   tutarlar zaten o dövizde; soru sorulmasının karşılığı yok ve
+   kullanıcıyı gereksiz bir tercihe zorluyordu. */
+function ekstreKipGoster() {
+  const d = document.getElementById('eksDoviz').value;
+  const alan = document.getElementById('eksKurAlan');
+  const acik = document.getElementById('eksAciklama');
+  alan.style.display = (d === 'TRY') ? '' : 'none';
+  if (d !== 'TRY') {
+    acik.innerHTML = `<strong>${d} ekstre</strong> — hareketler ${d} cinsinden listelenir. ` +
+      'Farklı dövizdeki hareketler işlem günü kuruyla çevrilir.';
+  } else {
+    const m = document.getElementById('eksKurModu').value;
+    acik.innerHTML = (m === 'islem')
+      ? '<strong>İşlem günü kuru</strong> — her hareket kendi ' +
+        'günündeki kurla çevrilir. Toplam, faturaların ham tutarıyla ' +
+        'aynı çıkar ve karşı tarafın defteriyle birebir tutar. ' +
+        'Mutabakat için doğrusu budur.'
+      : '<strong>Güncel kur</strong> — tüm tutarlar bugünkü kurla ' +
+        'çevrilir. "Bugün kapatsam kaç eder" sorusunun cevabı; kur ' +
+        'farkı hesaplamak için kullanılır.';
+  }
+}
+
+/* ── EKSTRE TÜR SÜZGECİ (ET1) ──
+   Türler EKRANDA sabit yazılmaz; carinin GERÇEK hareketlerinden
+   çıkarılır. Sabit liste, yeni bir işlem türü eklendiğinde
+   süzgeçte görünmemesine yol açardı — bu projede o hata sınıfının
+   birkaç örneğini düzelttik. */
+function eksTipleriDoldur(hareketler) {
+  const kutu = document.getElementById('eksTipler');
+  if (!kutu) return;
+  const tipler = [...new Set((hareketler || [])
+    .map(h => h.islem_tip).filter(Boolean))].sort();
+  if (!tipler.length) {
+    kutu.innerHTML = '<span style="color:var(--soluk);font-size:.8rem">hareket yok</span>';
+    return;
+  }
+  kutu.innerHTML = tipler.map(t => `
+    <label style="display:flex;align-items:center;gap:6px;font-size:.82rem;cursor:pointer">
+      <input type="checkbox" class="eks-tip" value="${kacar(t)}"> ${kacar(t)}
+    </label>`).join('');
+}
+
+function eksTipHepsi(sec) {
+  document.querySelectorAll('.eks-tip').forEach(x => x.checked = sec);
+}
+
+function eksSeciliTipler() {
+  return [...document.querySelectorAll('.eks-tip:checked')].map(x => x.value);
+}
+
+function ekstreAc() {
+  if (!EKSTRE_CARI) return;
+  const d = document.getElementById('eksDoviz').value;
+  // EK2: kur esası yalnızca TL ekstrede sorulur; diğerlerinde işlem günü kuru.
+  const m = (d === 'TRY') ? document.getElementById('eksKurModu').value : 'islem';
+  ekstreKapat();
+  window.open(`/api/cari/${encodeURIComponent(EKSTRE_CARI)}/ekstre_pdf` +
+              `?doviz=${encodeURIComponent(d)}&kur_modu=${encodeURIComponent(m)}`
+              /* Hiçbiri seçilmezse parametre GÖNDERİLMEZ → tümü gelir. */
+              + (eksSeciliTipler().length
+                 ? `&tip=${encodeURIComponent(eksSeciliTipler().join(','))}` : ''),
+              '_blank');
+}
+
+/* ESKİ SÜRÜM (E2) — prompt tabanlıydı, PWA'da çalışmıyordu.
+   Eskiden ekstre yalnızca carinin kendi para biriminde ve çelişkili
+   çıkıyordu: bakiye sütunu işlem günü kurunu, toplam satırı bugünkü
+   kuru kullanıyordu (-6.843,73 vs 5.483,15 — aynı belgede). */
+async function _eski_ekstreSecenek_KULLANILMIYOR(id) {
+  const c = TUM.find(x => x.id === id) || {};
+  const varsayilan = c.para_birimi || 'TRY';
+  const d = (null) && await soruSor(
+    'EKSTRE PARA BİRİMİ\n\n' +
+    'TRY · USD · EUR\n\n' +
+    `(boş bırakırsanız carinin para birimi: ${varsayilan})`, varsayilan);
+  if (d === null) return;
+  const doviz = (d || varsayilan).trim().toUpperCase();
+
+  let modu = 'islem';
+  if (doviz !== 'TRY') {
+    modu = await onayla(
+      'KUR ESASI\n\n' +
+      'TAMAM  → İşlem günü kuru\n' +
+      '   Her hareket kendi günündeki kurla çevrilir.\n' +
+      '   Toplam, faturaların ham tutarıyla aynı çıkar.\n' +
+      '   Karşı tarafın defteriyle birebir tutar — mutabakat için doğrusu.\n\n' +
+      'İPTAL  → Güncel kur\n' +
+      '   Tüm tutarlar bugünkü kurla çevrilir.\n' +
+      '   "Bugün kapatsam kaç eder" — kur farkı hesabı için.'
+    ) ? 'islem' : 'guncel';
+  }
+  window.open(`/api/cari/${encodeURIComponent(id)}/ekstre_pdf` +
+              `?doviz=${encodeURIComponent(doviz)}&kur_modu=${modu}`, '_blank');
+}
+/* ESKİ SÜRÜM SONU */
+
+/* Kasa defteri gibi baska ekranlardan "kayda git" ile gelindiginde
+   ?ac=<cari_id> ile o carinin detay cekmecesi acilir.
+   Kalip depodaki mevcut ornekten alindi (kesim.html, base.html):
+   URLSearchParams + liste yuklendikten sonra cagirma. */
+async function cariUrlIleAc() {
+  const id = new URLSearchParams(location.search).get('ac');
+  if (!id) return;
+  // TUM listesi dolmadan detayAc calismaz; dolana kadar bekle.
+  for (let i = 0; i < 40 && !(Array.isArray(TUM) && TUM.length); i++) {
+    await new Promise(r => setTimeout(r, 120));
+  }
+  if (TUM.find(x => x.id === id)) detayAc(id);
+  else bildir('Cari kaydı bulunamadı: ' + id, true);
+}
+document.addEventListener('DOMContentLoaded', cariUrlIleAc);
+
+/* ── BAKİYE KUTULARI ──
+   /api/cari/<id>/bakiye ucu `borc/alacak/net` alanlarını TRY
+   KARŞILIĞI olarak döndürür (CB1); ham döviz tutarları
+   `dovizler` altındadır.
+
+   Eskiden bu alanlar `para()` ile — yani $ sembolüyle —
+   basılıyordu. Sonuç: 6.535,602 USD'lik bir fatura ekranda
+   "305.866 $" görünüyordu (TRY karşılığı, dolar etiketiyle).
+   Hesap doğruydu, BİRİM YANLIŞTI.
+
+   Artık her döviz KENDİ birimiyle, TRY karşılığı ayrıca
+   gösteriliyor. Tek sayıya indirgemek kur riskini gizler —
+   nakit akışında da aynı sebeple dövizleri ayrı tutuyoruz. */
+/* DV2: kayıt değerleri ASCII ("Acilis Bakiyesi (Alacak)"); ekranda
+   Türkçe karakterle gösterilir. Kayıt değişmez — filtreler ona bakar. */
+const ISLEM_TR = {'Odeme':'Ödeme','Avans Tahsilati':'Avans Tahsilatı','Avans Odemesi':'Avans Ödemesi',
+  'Fatura (Satis)':'Fatura (Satış)','Fatura (Alis)':'Fatura (Alış)','Iade (Satis)':'İade (Satış)',
+  'Iade (Alis)':'İade (Alış)','Vade Farki (Borc)':'Vade Farkı (Borç)','Vade Farki (Alacak)':'Vade Farkı (Alacak)',
+  'Kur Farki (Borc)':'Kur Farkı (Borç)','Kur Farki (Alacak)':'Kur Farkı (Alacak)','Çek (Borc)':'Çek (Borç)',
+  'Acilis Bakiyesi':'Açılış Bakiyesi','Acilis Bakiyesi (Borc)':'Açılış Bakiyesi (Borç)',
+  'Acilis Bakiyesi (Alacak)':'Açılış Bakiyesi (Alacak)'};
+function islemEtiket(t) { return ISLEM_TR[t] || t || ''; }
+
+function bakiyeParaBirim(v, dv) {
+  const n = Number(v) || 0;
+  const s = n.toLocaleString('tr-TR', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+  return s + ' ' + (dv === 'TRY' ? '₺' : dv === 'USD' ? '$' : dv === 'EUR' ? '€' : dv);
+}
+
+/* ── RİSK ALANI (CR3) ──
+   Tanımlı limitin yanında KULLANILABİLİR tutarı da gösterir.
+   Kullanıcı "10.000'in ne kadarı kaldı" sorusunu proformaya
+   girmeden görmeli.
+
+   Açık risk NEGATİFSE (biz borçluyuz — tedarikçi ilişkisi) limit
+   dolmaz; bunu açıkça yazıyoruz, yoksa "neden hâlâ 10.000" sorusu
+   doğuyor. */
+function riskAlani(c, bakiye) {
+  /* DİKKAT: `alan()` yardımcısı `detayAc` İÇİNDE tanımlı yerel bir
+     const — buradan erişilemez. İlk sürümde onu çağırıyordum ve
+     risk limiti TANIMLI her caride ReferenceError atıp çekmeceyi
+     "Yükleniyor…" durumunda bırakıyordu. Limitsiz carilerde erken
+     dönüş olduğu için hata görünmüyordu.
+
+     İşaretlemeyi burada kendimiz üretiyoruz. */
+  const kutu = (etiket, deger) =>
+    `<div class="alan"><label>${etiket}</label><div class="mono">${deger}</div></div>`;
+  if (!c.risk_limiti) return '';
+  const r = (bakiye && bakiye.risk) || {};
+  const D = r.risk_doviz || c.para_birimi || 'USD';
+  const p = v => para(v, D);
+  if (!r.limit_var) return kutu('Risk Limiti', p(c.risk_limiti));
+
+  const acik = Number(r.acik_risk) || 0;
+  const kalan = Number(r.kullanilabilir) || 0;
+  const cek = Number(r.cek_riski) || 0;
+  const oran = Number(c.risk_limiti) > 0
+    ? Math.max(0, Math.min(100, (acik / Number(c.risk_limiti)) * 100)) : 0;
+  const renk = oran >= 90 ? 'var(--kirmizi)' : oran >= 70 ? 'var(--kehribar)' : 'var(--verde)';
+
+  let alt;
+  if (acik <= 0) {
+    alt = `<span style="color:var(--soluk)">limit dolu değil${
+      acik < 0 ? ' · bu caride biz borçluyuz' : ''}</span>`;
+  } else {
+    alt = `kullanılabilir <b style="color:${renk}">${p(kalan)}</b>`
+        + ` · ${p(acik)} kullanımda`
+        + (cek > 0 ? ` <span style="color:var(--kehribar)">(${p(cek)} çek)</span>` : '');
+  }
+  return kutu('Risk Limiti',
+    `${p(c.risk_limiti)}<div style="font-size:.76rem;margin-top:3px;line-height:1.5">${alt}</div>`
+    + (acik > 0 ? `<div style="height:4px;background:var(--cizgi);border-radius:3px;margin-top:5px">
+         <div style="height:100%;width:${oran.toFixed(0)}%;background:${renk};border-radius:3px"></div></div>` : ''));
+}
+
+function bakiyeKutulari(bakiye, c) {
+  const dovizler = bakiye.dovizler || {};
+  const kodlar = Object.keys(dovizler).sort();
+  if (!kodlar.length) {
+    return `<div class="alan"><label>Bakiye</label>
+      <div class="mono" style="color:var(--soluk)">hareket yok</div></div>`;
+  }
+  /* GR4: döviz başına HİZALI bakiye tablosu. Eskiden borç ve alacak
+     aynı satırda "/" ile, net altında, açıklaması onun da altında
+     taşıyordu; dar sütunda satırlar birbirine giriyordu. Artık
+     etiket solda, tutar sağda; net ayrı bir çizginin altında. */
+  let h = kodlar.map(dv => {
+    const k = dovizler[dv];
+    const net = Number(k.net) || 0;
+    const yorum = net > 0.005 ? 'müşteri borçlu' : net < -0.005 ? 'biz borçluyuz' : 'kapalı';
+    const renk = net > 0.005 ? 'var(--verde-koyu)' : net < -0.005 ? 'var(--kirmizi)' : 'var(--soluk)';
+    return `
+    <div class="alan bakiye-alan">
+      <label>${dv} bakiye</label>
+      <div class="bk-tablo">
+        <span>Borç</span><span class="mono bk-borc">${bakiyeParaBirim(k.borc, dv)}</span>
+        <span>Alacak</span><span class="mono bk-alacak">${bakiyeParaBirim(k.alacak, dv)}</span>
+        <i class="bk-cizgi"></i><span class="bk-net-e">Net</span><span class="mono bk-net" style="color:${renk}">${bakiyeParaBirim(net, dv)}</span>
+      </div>
+      <span class="bk-yorum" style="color:${renk}">${yorum}</span>
+    </div>`;
+  }).join('');
+  /* TRY karşılığı yalnızca BİRDEN FAZLA döviz varsa anlamlı;
+     tek dövizde aynı sayıyı iki kez göstermek kafa karıştırır. */
+  if (kodlar.length > 1) {
+    h += `<div class="alan"><label>Toplam (TRY karşılığı)</label>
+      <div class="mono" style="font-weight:700">${bakiyeParaBirim(bakiye.net, 'TRY')}</div>
+      <div style="color:var(--soluk);font-size:.74rem;margin-top:2px">
+        işlem günü kurlarıyla</div></div>`;
+  }
+  return h;
+}
+
+async function detayAc(id) {
+  const c = TUM.find(x => x.id === id);
+  if (!c) return;
+  /* GP1: adres çubuğu açık cariyi göstersin — bağlantı paylaşılabilir,
+     sayfa yenilenince aynı cari açılır (cariUrlIleAc). */
+  try { history.replaceState({}, '', location.pathname + '?ac=' + encodeURIComponent(id)); } catch (e) { /* */ }
+  cekmeceAc(kacar(c.unvan), kacar(String(c.cari_tip || '').split(',').map(x => x.trim()).filter(Boolean).join(', ')) + (c.ulke ? ' · ' + kacar(c.ulke) : ''), '<div class="yukleniyor">Yükleniyor…</div>', '');
+
+  let hareketler = [], bakiye = {};
+  try {
+    const [h, b] = await Promise.all([
+      api(`/api/cari/${encodeURIComponent(id)}/hareketler`),
+      api(`/api/cari/${encodeURIComponent(id)}/bakiye`)
+    ]);
+    hareketler = (h.data || []).slice().reverse().slice(0, 15);
+    bakiye = b || {};
+  } catch (e) { /* */ }
+
+  const bk = BAKIYE[id] || { net: 0, gecen: 0, doviz: 'USD' };
+  const alan = (l, v, mono) => `<div class="alan"><label>${l}</label><div class="${mono ? 'mono' : ''}">${v || '—'}</div></div>`;
+  const govde = `
+    <div class="alan-grid">
+      ${bakiyeKutulari(bakiye, c)}
+      ${alan('Vadesi Geçen', bk.gecen > 1
+        ? `<span style="color:var(--kirmizi);font-weight:600">${para(bk.gecen)}</span>` : '—')}
+      ${alan('Ülke', c.ulke ? kacar(ulkeAdi(c.ulke)) + (String(ulkeAdi(c.ulke)).toLocaleUpperCase('tr') !== String(c.ulke).toLocaleUpperCase('tr')
+          ? ' <span class="mono" style="color:var(--soluk)">(' + kacar(c.ulke) + ')</span>' : '') : '—')}
+      ${alan('Para Birimi', kacar(c.para_birimi || 'USD') + (() => {
+        /* DV1: hareketler başka dövizdeyse söyle — yoksa "Para birimi
+           USD" yazarken bakiye EUR görünür ve çelişki gibi durur. */
+        const pb = (c.para_birimi || 'USD').toUpperCase();
+        const diger = Object.keys(bakiye.dovizler || {}).filter(d => d.toUpperCase() !== pb);
+        return diger.length ? `<div style="font-size:.74rem;color:var(--kehribar);margin-top:2px">hareketlerde ${kacar(diger.join(', '))} de var</div>` : '';
+      })())}
+      ${alan('Telefon', kacar(c.telefon || '—'), true)}
+      ${alan('E-posta', kacar(c.email || '—'))}
+      ${c.adres ? alan('Adres', kacar(c.adres)) : ''}
+      ${riskAlani(c, bakiye)}
+      ${/* CR2: tahsil edilmemiş çek riski. Çek alınınca cari borcu
+            DÜŞER, o yüzden bakiyeye bakan kullanıcı "borcu yok"
+            sanıyordu — oysa çek tahsil edilene kadar risk sürer. */
+        (Number(bakiye.cek_riski) || 0) > 0
+          ? alan('Tahsil Edilmemiş Çek',
+                 `<span style="color:var(--kehribar);font-weight:600">${
+                   para(bakiye.cek_riski, bakiye.cek_doviz || 'USD')}</span>`, true)
+          : ''}
+    </div>
+    <h4 style="font-size:.8rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--soluk);margin-bottom:6px">
+      Son hareketler ${hareketler.length ? '· ' + hareketler.length : ''}</h4>
+    <div>
+      ${hareketler.length ? hareketler.map(h => `
+        <div class="ekstre-satir">
+          <span class="t">${kacar((h.hareket_tarihi || '').slice(5))}</span>
+          <div>
+            <div>${kacar(islemEtiket(h.islem_tip))}</div>
+            ${h.aciklama && h.aciklama !== h.islem_tip ? '<div style="color:var(--soluk);font-size:.75rem">' + kacar(h.aciklama.slice(0, 42)) + '</div>' : ''}
+            ${/* KU1: KUR AÇIKÇA GÖRÜNSÜN.
+                  1.000 USD'lik hareketin hangi kurla çevrildiği
+                  görünmüyordu; mutabakatta karşı taraf rakamı
+                  doğrulayamaz. TRY'de yazılmaz — bilgi taşımaz. */
+              (h.kur_uygulanan && h.doviz && h.doviz !== 'TRY')
+                ? `<div style="color:var(--soluk);font-size:.72rem;font-variant-numeric:tabular-nums">
+                     1 ${kacar(h.doviz)} = ${Number(h.kur_uygulanan).toLocaleString('tr-TR',
+                       {minimumFractionDigits:4, maximumFractionDigits:4})} ₺${
+                     h.kur_kaynak ? ' · ' + kacar(h.kur_kaynak) : ''}</div>` : ''}
+          </div>
+          <span class="tut ${(h.borc || 0) > 0 ? 'borc' : 'alacak'}">
+            ${(h.borc || 0) > 0 ? '+' + para(h.borc, h.doviz) : '−' + para(h.alacak, h.doviz)}
+          </span>
+          ${yazabilir('cari') ? `<button class="hsil" onclick="hareketSil('${kacar(h.id)}','${kacar(id)}')" title="Hareketi sil">✕</button>` : ''}
+        </div>`).join('')
+      : '<div class="bos" style="padding:12px">Hareket yok.</div>'}
+    </div>
+
+    <!-- C360: açık faturalar (tek ödemeyle kapatma) ve belge zaman
+         çizelgesi. Çekmece açıldıktan SONRA yüklenir. -->
+    <div id="acikFatBolum"></div>
+    <div id="zamanBolum"></div>
+
+    <!-- CRM: temas geçmişi, kişiler ve erişim. İçerik çekmece
+         açıldıktan SONRA yükleniyor; hareketleri beklemesin. -->
+    <div id="crmBolum" style="margin-top:14px">
+      <div class="yukleniyor" style="font-size:.8rem">CRM bilgileri yükleniyor…</div>
+    </div>`;
+
+  /* CRM bölümleri 'crm' yetkisine bağlı — finans ekibi görüşme
+     notlarını görmesin. Yetki yoksa bölüm hiç çizilmez. */
+  /* base.html'de okuma için yardımcı yok; YETKI sözlüğü doğrudan
+     kullanılıyor (yazabilir() de aynı kaynaktan besleniyor). */
+  const _crmVar = window.ADMIN || (window.YETKI && window.YETKI['crm'] &&
+                                   window.YETKI['crm'] !== 'gizli');
+
+  const eylem = [];
+  if (yazabilir('crm'))
+    eylem.push(`<button class="blok-btn" onclick="aktiviteAc('${kacar(id)}')">+ Temas kaydet</button>`);
+  if (yazabilir('cari'))
+    eylem.push(`<button class="blok-btn birincil" onclick="hareketAc('${kacar(id)}','${kacar(c.unvan)}')">Hareket ekle</button>`);
+  if (yazabilir('cari'))
+    eylem.push(`<button class="blok-btn" onclick="tahsilatAc('${kacar(id)}')">Tahsilat / Ödeme</button>`);
+  eylem.push(`<button class="blok-btn" onclick="ekstreSecenek('${kacar(id)}')">Ekstre yazdır</button>`);
+  eylem.push(`<button class="blok-btn" onclick="sipEkstreAc('${kacar(id)}','${kacar(c.unvan)}')">Sipariş ekstresi</button>`);
+  if (yazabilir('cari'))
+    eylem.push(`<button class="blok-btn" onclick="duzenleAc('${kacar(id)}')">Bilgi Düzenle</button>`);
+  cekmeceAc(kacar(c.unvan), kacar(String(c.cari_tip || '').split(',').map(x => x.trim()).filter(Boolean).join(', ')) + (c.ulke ? ' · ' + kacar(c.ulke) : ''), govde, eylem.join(''));
+  /* DV5: CRM, çekmece gövdesi YERLEŞTİKTEN SONRA yüklenir.
+     Eskiden cekmeceAc'tan önce çağrılıyordu; o anda #crmBolum henüz
+     yoktu, crmYukle sessizce çıkıyordu ve "CRM bilgileri
+     yükleniyor…" sonsuza dek kalıyordu. */
+  if (_crmVar) crmYukle(id, c.unvan);
+  else { const kx = document.getElementById('crmBolum'); if (kx) kx.remove(); }
+  acikFaturaYukle(id);
+  zamanYukle(id, c);
+}
+
+/* ══════════════════════════════════════════════════════════════
+   C360 · AÇIK FATURALAR + TEK ÖDEMEYLE KAPATMA (TT1)
+   Müşteri tek havaleyle birkaç faturayı ödediğinde her faturaya
+   ayrı tahsilat girmek gerekiyordu. Seçilen faturalara tutar,
+   VADESİ EN ESKİDEN başlayarak dağıtılır (sunucu yapar).
+   ══════════════════════════════════════════════════════════════ */
+let AF_CARI = null, AF_LISTE = [];
+
+async function acikFaturaYukle(id) {
+  const kutu = document.getElementById('acikFatBolum');
+  if (!kutu) return;
+  AF_CARI = id; AF_LISTE = [];
+  try {
+    const d = await api(`/api/cari/${encodeURIComponent(id)}/acik_faturalar?yon=satis`);
+    AF_LISTE = (d.faturalar || []).filter(f => f.kaynak === 'fatura')
+      .sort((a, b) => (a.vade_tarihi || '9999').localeCompare(b.vade_tarihi || '9999'));
+  } catch (e) { kutu.innerHTML = ''; return; }
+  if (!AF_LISTE.length) { kutu.innerHTML = ''; return; }
+  /* GP1: vadesi geçen fatura sayısı başlıkta — kaydırmadan görünsün. */
+  const _gec = AF_LISTE.filter(f => f.gecikme_gun > 0).length;
+  const _alt = document.getElementById('cekAlt');
+  if (_gec && _alt && AF_CARI === id && !_alt.textContent.includes('vadesi geçen'))
+    _alt.textContent += ` · ⚠ vadesi geçen ${_gec} fatura`;
+  const yz = yazabilir('fatura');
+  const tr = t => t ? t.split('-').reverse().join('.') : '—';
+  kutu.innerHTML = `
+    <h4 class="crm-bas">Açık faturalar · ${AF_LISTE.length}</h4>
+    <div class="crm-liste">
+      ${AF_LISTE.map(f => `
+        <label class="af-satir" style="${yz ? 'cursor:pointer' : ''}">
+          ${yz ? `<input type="checkbox" class="af-sec" value="${kacar(f.id)}" onchange="afSecimDegisti()">` : '<span></span>'}
+          <div><div>${kacar(f.fatura_no)} <span style="color:var(--soluk);font-size:.78rem">· ${kacar(f.tarih || '')}</span></div>
+            <div class="alt">${f.vade_tarihi
+              ? (f.gecikme_gun > 0 ? `<span class="gec">vade ${tr(f.vade_tarihi)} · ${f.gecikme_gun} gün geçti</span>`
+                                   : `vade ${tr(f.vade_tarihi)}`)
+              : 'vade yok'}${f.odenen > 0 ? ` · ödenen ${para2(f.odenen, f.doviz)}` : ''}</div></div>
+          <div class="tut">${para2(f.kalan, f.doviz)}
+            ${f.kalan < f.toplam ? `<div class="alt">/ ${para2(f.toplam, f.doviz)}</div>` : ''}</div>
+        </label>`).join('')}
+      ${yz ? `<div class="af-alt"><span id="afOzet" style="color:var(--soluk)">Faturaları seçin</span>
+        <button class="crm-mini" id="afBtn" onclick="ttAc()" disabled>Seçilenleri tek ödemeyle kapat</button></div>` : ''}
+    </div>`;
+}
+
+function afSecilenler() {
+  const idler = [...document.querySelectorAll('.af-sec:checked')].map(x => x.value);
+  return AF_LISTE.filter(f => idler.includes(f.id));
+}
+
+function afToplam(liste) {
+  const t = {};
+  liste.forEach(f => { t[f.doviz] = (t[f.doviz] || 0) + (Number(f.kalan) || 0); });
+  return t;
+}
+
+function afSecimDegisti() {
+  const s = afSecilenler();
+  const oz = document.getElementById('afOzet'), btn = document.getElementById('afBtn');
+  if (!oz || !btn) return;
+  btn.disabled = s.length < 1;
+  oz.textContent = s.length
+    ? `${s.length} fatura · kalan ` + Object.entries(afToplam(s)).map(([d, v]) => para2(v, d)).join(' + ')
+    : 'Faturaları seçin';
+}
+
+let TT_KASALAR = null;
+async function ttAc() {
+  const s = afSecilenler();
+  if (!s.length) return;
+  if (!TT_KASALAR) {
+    try { TT_KASALAR = (await api('/api/kasa')).filter(k => !k.ana_kasa && k.aktif !== false); }
+    catch (e) { TT_KASALAR = []; }
+  }
+  const dvler = [...new Set(s.map(f => f.doviz))];
+  const dv = dvler.length === 1 ? dvler[0] : 'USD';
+  document.getElementById('ttDoviz').value = dv;
+  const top = afToplam(s);
+  document.getElementById('ttTutar').value = dvler.length === 1 ? (Math.round(top[dv] * 100) / 100) : '';
+  document.getElementById('ttKur').value = '';
+  document.getElementById('ttEvrak').value = '';
+  document.getElementById('ttAciklama').value = '';
+  const kasaSec = document.getElementById('ttKasa');
+  kasaSec.innerHTML = '<option value="">— kasa / banka seçin (zorunlu) —</option>'
+    + TT_KASALAR.map(k => `<option value="${k.id}" data-dv="${kacar(k.doviz || '')}">${kacar(kasaEtiket(k))} · ${kacar(k.doviz || '')}</option>`).join('');
+  const uygun = TT_KASALAR.filter(k => k.doviz === dv);
+  if (uygun.length === 1) kasaSec.value = String(uygun[0].id);
+  document.getElementById('ttAlt').textContent =
+    s.map(f => f.fatura_no).join(', ') + ' · kalan ' + Object.entries(top).map(([d, v]) => para2(v, d)).join(' + ');
+  ttOnizle();
+  document.getElementById('ttModal').classList.add('acik');
+}
+function ttKapat() { document.getElementById('ttModal').classList.remove('acik'); }
+
+/* Dağıtım önizlemesi — yalnızca aynı dövizde kesin; farklı dövizde
+   sunucu günün kuruyla hesaplar, burada yaklaşık gösterilmez. */
+function ttOnizle() {
+  const s = afSecilenler().slice().sort((a, b) => (a.vade_tarihi || '9999').localeCompare(b.vade_tarihi || '9999'));
+  const dv = document.getElementById('ttDoviz').value;
+  const tutar = parseFloat(document.getElementById('ttTutar').value) || 0;
+  const ayni = s.every(f => f.doviz === dv);
+  document.getElementById('ttKurAlan').style.display = (ayni && dv !== 'TRY') || dv === 'TRY' ? 'none' : '';
+  const kutu = document.getElementById('ttOnizleme');
+  if (!ayni) {
+    kutu.innerHTML = `<div class="not" style="background:var(--kehribar-bg);color:var(--kehribar)">
+      Ödeme dövizi faturalardan farklı: tutar, kayıt anındaki kurla fatura dövizine çevrilip
+      vadesi en eski faturadan başlanarak dağıtılır.</div>`;
+    return;
+  }
+  let kalan = tutar;
+  const satirlar = s.map(f => { const pay = Math.max(0, Math.min(kalan, f.kalan)); kalan -= pay; return { f, pay }; });
+  const toplamKalan = s.reduce((a, f) => a + f.kalan, 0);
+  const fazla = tutar - toplamKalan;
+  kutu.innerHTML = `
+    <div class="crm-liste" style="margin-top:4px">
+      ${satirlar.map(({ f, pay }) => `
+        <div class="af-satir" style="grid-template-columns:1fr auto auto">
+          <div>${kacar(f.fatura_no)}<div class="alt">kalan ${para2(f.kalan, f.doviz)}</div></div>
+          <div class="tut">${pay > 0 ? para2(pay, dv) : '—'}</div>
+          <div class="alt" style="min-width:70px;text-align:right">${
+            pay <= 0 ? 'ödeme yok' : (pay + 0.01 >= f.kalan ? '✓ kapanır' : 'kısmi')}</div>
+        </div>`).join('')}
+    </div>
+    ${fazla > 0.01 ? `<div class="not" style="margin-top:8px;background:var(--kirmizi-bg);color:var(--kirmizi)">
+      Tutar seçilen faturaların kalanını ${para2(fazla, dv)} aşıyor. Fazlayı avans olarak
+      cari hareketinden girin ya da tutarı düşürün.</div>` : ''}`;
+}
+
+async function ttKaydet() {
+  const s = afSecilenler();
+  const tutar = parseFloat(document.getElementById('ttTutar').value) || 0;
+  const kasa = document.getElementById('ttKasa').value;
+  if (!(tutar > 0)) { bildir('Geçerli bir tutar girin.', true); return; }
+  if (!kasa) { bildir('Kasa / banka seçimi zorunlu.', true); document.getElementById('ttKasa').focus(); return; }
+  const btn = document.getElementById('ttKaydet');
+  btn.disabled = true; btn.textContent = 'Kaydediliyor…';
+  try {
+    const d = await api(`/api/cari/${encodeURIComponent(AF_CARI)}/toplu_tahsilat`, {
+      method: 'POST', body: JSON.stringify({
+        fatura_idler: s.map(f => f.id), tutar,
+        doviz: document.getElementById('ttDoviz').value,
+        kasa_id: parseInt(kasa, 10),
+        kur: parseFloat(document.getElementById('ttKur').value) || null,
+        evrak_no: document.getElementById('ttEvrak').value.trim() || null,
+        aciklama: document.getElementById('ttAciklama').value.trim() || null,
+      }) });
+    bildir(d.mesaj || 'Tahsilat kaydedildi.');
+    ttKapat();
+    await yukle();
+    detayAc(AF_CARI);
+  } catch (e) { /* api() mesajı gösterdi */ }
+  finally { btn.disabled = false; btn.textContent = 'Tahsilatı Kaydet'; }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   C360 · ZAMAN ÇİZELGESİ + YENİ BELGE
+   ══════════════════════════════════════════════════════════════ */
+const ZC = {
+  proforma: ['Proforma', 'var(--mavi)'], siparis: ['Sipariş', 'var(--verde)'],
+  sevkiyat: ['Sevkiyat', 'var(--kehribar)'], fatura: ['Fatura', 'var(--murekkep)'],
+  tahsilat: ['Tahsilat', 'var(--verde)'], cek: ['Çek', 'var(--kehribar)'],
+};
+let ZC_TUMU = false;
+
+async function zamanYukle(id, c) {
+  const kutu = document.getElementById('zamanBolum');
+  if (!kutu) return;
+  let d = { data: [], toplam: 0 };
+  try { d = await api(`/api/cari/${encodeURIComponent(id)}/zaman?limit=${ZC_TUMU ? 200 : 12}`); }
+  catch (e) { kutu.innerHTML = ''; return; }
+  const mus = encodeURIComponent((c && c.unvan) || '');
+  const yeniP = yazabilir('proforma') ? `<button class="crm-mini" onclick="location.href='/proforma?yeni_musteri=${mus}'">+ Proforma</button>` : '';
+  const yeniF = yazabilir('fatura') ? `<button class="crm-mini" onclick="location.href='/fatura?yeni_musteri=${mus}'">+ Fatura</button>` : '';
+  const tr = t => t ? t.split('-').reverse().join('.') : '';
+  const o = d.data || [];
+  kutu.innerHTML = `
+    <h4 class="crm-bas">Belgeler ${d.toplam ? '· ' + d.toplam : ''} ${yeniP} ${yeniF}</h4>
+    ${o.length ? `<div class="zc">${o.map(x => {
+      const [ad, renk] = ZC[x.tip] || [x.tip, 'var(--soluk)'];
+      const bas = x.bag ? `<a href="${kacar(x.bag)}">${kacar(x.baslik)}</a>` : kacar(x.baslik);
+      return `<div class="zc-o" style="--zc-renk:${renk}">
+        <div><span class="t">${tr(x.tarih)}</span>${bas}</div>
+        ${x.detay ? `<div class="alt">${kacar(x.detay)}</div>` : ''}</div>`;
+    }).join('')}</div>
+    ${d.toplam > o.length ? `<button class="crm-mini" style="margin-top:4px" onclick="ZC_TUMU=true;zamanYukle('${kacar(id)}', TUM.find(x => x.id === '${kacar(id)}'))">Tümünü göster (${d.toplam})</button>` : ''}`
+    : '<div class="bos" style="padding:12px;border:1px solid var(--cizgi);border-radius:var(--r-kucuk)">Henüz belge yok.</div>'}`;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   CRM: temas geçmişi · kişiler · erişim
+   ══════════════════════════════════════════════════════════════ */
+let CRM_CARI = null, CRM_UNVAN = '';
+
+const AKTIVITE_ETIKET = {
+  telefon: '☎ Telefon', eposta: '✉ E-posta', ziyaret: '👤 Ziyaret',
+  fuar: '🏛 Fuar', numune: '📦 Numune', teklif: '📄 Teklif', diger: '• Diğer'
+};
+
+function crmTarih(t) { return t ? t.split('-').reverse().join('.') : ''; }
+
+async function crmYukle(id, unvan) {
+  CRM_CARI = id; CRM_UNVAN = unvan || '';
+  const kutu = document.getElementById('crmBolum');
+  if (!kutu) return;
+  let akt = [], kisiler = [], erisim = { data: [], yonetebilir: false };
+  try {
+    const [a, k, e] = await Promise.all([
+      api(`/api/cari/${encodeURIComponent(id)}/aktivite`),
+      api(`/api/cari/${encodeURIComponent(id)}/kisi`),
+      api(`/api/cari/${encodeURIComponent(id)}/erisim`)
+    ]);
+    akt = a.data || []; kisiler = k.data || []; erisim = e || erisim;
+  } catch (err) {
+    kutu.innerHTML = '<div class="bos" style="padding:12px">CRM bilgileri alınamadı.</div>';
+    return;
+  }
+  const yz = yazabilir('crm');
+  const bugun = new Date().toISOString().slice(0, 10);
+
+  /* Bekleyen takipler EN ÜSTTE: bir CRM'in asıl işi geçmişi
+     göstermek değil, yapılacakları hatırlatmak. */
+  const bekleyen = akt.filter(x => x.sonraki_tarih && !x.tamamlandi);
+
+  kutu.innerHTML = `
+    ${bekleyen.length ? `
+    <h4 class="crm-bas">Bekleyen takip · ${bekleyen.length}</h4>
+    <div class="crm-liste">
+      ${bekleyen.map(x => `
+        <div class="crm-takip ${x.sonraki_tarih < bugun ? 'gec' : ''}">
+          <span class="t">${crmTarih(x.sonraki_tarih)}</span>
+          <div><div>${kacar(x.sonraki_adim || '')}</div>
+            <div class="alt">${kacar(x.ozet)}</div></div>
+          ${yz ? `<button class="crm-mini" onclick="aktiviteTamamla(${x.id})">Yapıldı</button>` : ''}
+        </div>`).join('')}
+    </div>` : ''}
+
+    <h4 class="crm-bas">Temas geçmişi ${akt.length ? '· ' + akt.length : ''}</h4>
+    <div class="crm-liste">
+      ${akt.length ? akt.slice(0, 12).map(x => `
+        <div class="crm-akt">
+          <span class="t">${crmTarih(x.tarih)}</span>
+          <div>
+            <div><span class="crm-tip">${AKTIVITE_ETIKET[x.tip] || x.tip || ''}</span>
+              ${kacar(x.ozet)}</div>
+            ${x.detay ? `<div class="alt">${kacar(x.detay.slice(0, 90))}</div>` : ''}
+            ${x.sonraki_adim ? `<div class="alt">→ ${kacar(x.sonraki_adim)}
+              (${crmTarih(x.sonraki_tarih)})${x.tamamlandi ? ' ✓' : ''}</div>` : ''}
+            <div class="alt" style="opacity:.7">${kacar(x.kullanici || '')}</div>
+          </div>
+          ${yz ? `<button class="hsil" onclick="aktiviteSil(${x.id})" title="Sil">✕</button>` : ''}
+        </div>`).join('')
+      : '<div class="bos" style="padding:12px">Henüz temas kaydı yok.</div>'}
+    </div>
+
+    <h4 class="crm-bas">Kişiler ${kisiler.length ? '· ' + kisiler.length : ''}
+      ${yz ? `<button class="crm-mini" onclick="kisiAc()">+ Kişi</button>` : ''}</h4>
+    <div class="crm-liste">
+      ${kisiler.length ? kisiler.map(k => `
+        <div class="crm-kisi">
+          <div><div>${kacar(k.ad)}${k.birincil ? ' <span class="crm-rozet">birincil</span>' : ''}</div>
+            <div class="alt">${[k.gorev, k.telefon, k.email].filter(Boolean).map(kacar).join(' · ')}</div></div>
+          ${yz ? `<button class="hsil" onclick="kisiSil(${k.id})" title="Sil">✕</button>` : ''}
+        </div>`).join('')
+      : '<div class="bos" style="padding:12px">Kişi tanımlı değil.</div>'}
+    </div>
+
+    ${erisim.yonetebilir ? `
+    <h4 class="crm-bas">Erişim
+      <button class="crm-mini" onclick="erisimAc()">+ Kişiye aç</button></h4>
+    <div class="crm-liste">
+      ${(erisim.data || []).length ? erisim.data.map(e => `
+        <div class="crm-kisi">
+          <div><div>${kacar(e.kullanici)}</div>
+            <div class="alt">veren: ${kacar(e.veren || '—')}</div></div>
+          <button class="hsil" onclick="erisimSil(${e.id})" title="Kaldır">✕</button>
+        </div>`).join('')
+      : '<div class="bos" style="padding:12px">Ek erişim verilmemiş.</div>'}
+    </div>` : ''}`;
+}
+
+function crmYenile() { if (CRM_CARI) crmYukle(CRM_CARI, CRM_UNVAN); }
+
+/* ── Temas kaydı ── */
+function aktiviteAc(id) {
+  CRM_CARI = id || CRM_CARI;
+  document.getElementById('akTarih').value = new Date().toISOString().slice(0, 10);
+  document.getElementById('akTip').value = 'telefon';
+  ['akOzet', 'akDetay', 'akAdim', 'akSonTarih'].forEach(x =>
+    document.getElementById(x).value = '');
+  document.getElementById('aktiviteModal').classList.add('acik');
+}
+function aktiviteKapat() {
+  document.getElementById('aktiviteModal').classList.remove('acik');
+}
+async function aktiviteKaydet() {
+  const ozet = document.getElementById('akOzet').value.trim();
+  if (!ozet) { bildir('Özet zorunlu', true); return; }
+  const adim = document.getElementById('akAdim').value.trim();
+  const sonTarih = document.getElementById('akSonTarih').value;
+  /* Tarihsiz takip hatırlatılamaz — sunucu da reddediyor, burada
+     erken uyarmak kullanıcıyı sunucu hatasına göndermekten iyi. */
+  if (adim && !sonTarih) {
+    bildir('Sonraki adım girdiyseniz tarihini de belirtin', true); return;
+  }
+  try {
+    await api(`/api/cari/${encodeURIComponent(CRM_CARI)}/aktivite`, {
+      method: 'POST', body: JSON.stringify({
+        tarih: document.getElementById('akTarih').value,
+        tip: document.getElementById('akTip').value,
+        ozet: ozet,
+        detay: document.getElementById('akDetay').value,
+        sonraki_adim: adim, sonraki_tarih: sonTarih })});
+    bildir('Temas kaydedildi');
+    aktiviteKapat(); crmYenile();
+  } catch (e) { /* api() bildiriyor */ }
+}
+async function aktiviteTamamla(aid) {
+  try {
+    const d = await api(`/api/aktivite/${aid}/tamamla`,
+      { method: 'POST', body: JSON.stringify({ tamamlandi: true }) });
+    bildir(d.mesaj || 'İşaretlendi'); crmYenile();
+  } catch (e) {}
+}
+async function aktiviteSil(aid) {
+  if (!await onayla('Bu temas kaydı silinecek.\n\nDevam edilsin mi?', { tehlike: true })) return;
+  try { await api(`/api/aktivite/${aid}`, { method: 'DELETE' });
+    bildir('Silindi'); crmYenile(); } catch (e) {}
+}
+
+/* ── Kişiler ── */
+function kisiAc() {
+  ['kiAd', 'kiGorev', 'kiTel', 'kiEposta'].forEach(x =>
+    document.getElementById(x).value = '');
+  document.getElementById('kiBirincil').checked = false;
+  document.getElementById('kisiModal').classList.add('acik');
+}
+function kisiKapat() { document.getElementById('kisiModal').classList.remove('acik'); }
+async function kisiKaydet() {
+  const ad = document.getElementById('kiAd').value.trim();
+  if (!ad) { bildir('Kişi adı zorunlu', true); return; }
+  try {
+    await api(`/api/cari/${encodeURIComponent(CRM_CARI)}/kisi`, {
+      method: 'POST', body: JSON.stringify({
+        ad: ad, gorev: document.getElementById('kiGorev').value,
+        telefon: document.getElementById('kiTel').value,
+        email: document.getElementById('kiEposta').value,
+        birincil: document.getElementById('kiBirincil').checked })});
+    bildir(ad + ' eklendi'); kisiKapat(); crmYenile();
+  } catch (e) {}
+}
+async function kisiSil(kid) {
+  if (!await onayla('Bu kişi silinecek.\n\nDevam edilsin mi?', { tehlike: true })) return;
+  try { await api(`/api/kisi/${kid}`, { method: 'DELETE' });
+    bildir('Silindi'); crmYenile(); } catch (e) {}
+}
+
+/* ── Erişim istisnası ── */
+async function erisimAc() {
+  /* OP1: yönetici için kullanıcı LİSTEDEN seçilir (yazım hatası
+     "kullanıcı bulunamadı" döndürüyordu); liste admin'e açık, diğerleri
+     adı yazar. */
+  let secenekler = null;
+  if (window.ADMIN) {
+    if (CARI_KULLANICILAR === null) {
+      try { const d = await api('/api/ayarlar/kullanici');
+        CARI_KULLANICILAR = (Array.isArray(d) ? d : (d.data || [])).map(k => k.ad).filter(Boolean);
+      } catch (e) { CARI_KULLANICILAR = []; }
+    }
+    if (CARI_KULLANICILAR.length) secenekler = [['', '— kullanıcı seçin —'], ...CARI_KULLANICILAR];
+  }
+  const kim = await soruSor('Bu müşteriyi hangi kullanıcı görebilsin?', '',
+    { baslik: 'Kişiye aç', etiket: 'Kullanıcı', secenekler });
+  if (!kim) return;
+  try {
+    const d = await api(`/api/cari/${encodeURIComponent(CRM_CARI)}/erisim`, {
+      method: 'POST', body: JSON.stringify({ kullanici: kim.trim() }) });
+    bildir(d.mesaj || 'Erişim verildi'); crmYenile();
+  } catch (e) {}
+}
+async function erisimSil(eid) {
+  if (!await onayla('Bu kullanıcının erişimi kaldırılacak.\n\nDevam edilsin mi?')) return;
+  try { const d = await api(`/api/erisim/${eid}`, { method: 'DELETE' });
+    bildir(d.mesaj || 'Kaldırıldı'); crmYenile(); } catch (e) {}
+}
+
+/* ── Yeni / düzenle ── */
+function yeniAc() { formAc(null); }
+function duzenleAc(id) { formAc(TUM.find(x => x.id === id)); }
+
+let CARI_KULLANICILAR = null;
+
+async function cSorumluDoldur(mevcut) {
+  const sec = document.getElementById('cSorumlu');
+  const gor = document.getElementById('cGorunurluk');
+  /* KULLANICI LİSTESİ YALNIZCA ADMİNE AÇIK (YZ1).
+     `/api/ayarlar/kullanici` admin olmayana 403 döndürüyor ve
+     `api()` yakalanmadan ÖNCE kırmızı uyarı basıyordu:
+     "Bu modülü görüntüleme yetkiniz yok — ayarlar.kullanici".
+     Kullanıcının cari yetkisi vardı, hata yanıltıcıydı.
+
+     Sorumlu ataması zaten yönetici işi; admin değilse ucu HİÇ
+     çağırmıyoruz. Mevcut değer aşağıda korunuyor. */
+  if (CARI_KULLANICILAR === null) {
+    if (!window.ADMIN) {
+      CARI_KULLANICILAR = [];
+    } else {
+      try {
+        const d = await api('/api/ayarlar/kullanici');
+        CARI_KULLANICILAR = (Array.isArray(d) ? d : (d.data || []))
+          .map(k => k.ad).filter(Boolean);
+      } catch (e) { CARI_KULLANICILAR = []; }
+    }
+  }
+  const adlar = CARI_KULLANICILAR.slice();
+  /* Mevcut sorumlu listede yoksa (admin değiliz ya da kullanıcı
+     pasifleştirildi) yine de seçenek olarak ekle — yoksa değer
+     kaybolur. */
+  if (mevcut && !adlar.includes(mevcut)) adlar.push(mevcut);
+  sec.innerHTML = '<option value="">— atanmadı —</option>'
+    + adlar.map(a => `<option value="${kacar(a)}">${kacar(a)}</option>`).join('');
+  sec.value = mevcut || '';
+  const yetkili = !!window.ADMIN;
+  sec.disabled = !yetkili;
+  gor.disabled = !yetkili;
+  if (!yetkili) {
+    sec.title = gor.title = 'Sahiplik ve görünürlüğü yalnızca yönetici değiştirebilir';
+  }
+}
+
+function formAc(c) {
+  DUZENLENEN = c || null;
+  // Ülke: tam ad seçilir, ISO3 kodu (USA) saklanır
+  ulkeSelectDoldur('cUlke', c ? (c.ulke || '') : '');
+  document.getElementById('mBaslik').textContent = c ? 'Cariyi Düzenle' : 'Yeni Cari';
+  document.getElementById('cUnvan').value = c ? (c.unvan || '') : '';
+  rolleriYerlestir(c ? (c.cari_tip || 'Müşteri') : 'Müşteri');   // R1
+  document.getElementById('cUlke').value = c ? (c.ulke || '') : '';
+  document.getElementById('cTelefon').value = c ? (c.telefon || '') : '';
+  document.getElementById('cEmail').value = c ? (c.email || '') : '';
+  document.getElementById('cAdres').value = c ? (c.adres || '') : '';
+  document.getElementById('cVergiDairesi').value = c ? (c.vergi_dairesi || '') : '';
+  document.getElementById('cVergiNo').value = c ? (c.vergi_no || '') : '';
+  document.getElementById('cYetkili').value = c ? (c.yetkili || '') : '';
+  document.getElementById('cIban').value = c ? (c.iban || '') : '';
+  document.getElementById('cDoviz').value = c ? (c.para_birimi || 'USD') : 'USD';
+  document.getElementById('cRisk').value = c ? (c.risk_limiti || '') : '';
+  document.getElementById('cVade').value = c ? (c.odeme_vadesi_gun || '') : '';
+  /* Sorumlu listesini doldur. /api/ayarlar/kullanici admin OLMAYANA
+     BOŞ dizi döner; liste boş kalırsa kaydederken sorumlu null
+     gider ve SAHİPLİK SİLİNİR. Bu yüzden mevcut değer her hâlükârda
+     seçenek olarak eklenir, admin değilse alanlar kilitlenir ve
+     gövdeye hiç konmaz. */
+  cSorumluDoldur(c ? c.sorumlu : null);
+  /* Yeni kayıtta da KAPALI gelsin — güvenli taraf. */
+  document.getElementById('cGorunurluk').value = c ? (c.gorunurluk || 'kapali') : 'kapali';
+  document.getElementById('cUrunTed').checked = c ? !!c.urun_tedarikcisi : false;
+  document.getElementById('cKisaltma').value = c ? (c.uretici_kisaltma || '') : '';
+  tipDegisti();
+  cekmeceKapat();
+  document.getElementById('modal').classList.add('acik');
+}
+function modalKapat() { document.getElementById('modal').classList.remove('acik'); }
+/* R1 — Seçili rolleri virgülle birleştirip gizli alana yazar.
+   Veri katmanı bu biçimi zaten anlıyor: cariMusteriMi() ve
+   cariTedarikciMi() includes() ile bakıyor, düz eşitlikle değil. */
+function rolleriTopla() {
+  const secili = [...document.querySelectorAll('.rol-kutu:checked')].map(x => x.value);
+  const alan = document.getElementById('cTip');
+  if (alan) alan.value = secili.join(',');
+  return secili;
+}
+
+/* Kayıtlı değeri kutulara dağıtır. "Müşteri,Tedarikçi" → iki kutu. */
+function rolleriYerlestir(deger) {
+  const parcalar = String(deger || 'Müşteri')
+    .split(',').map(x => x.trim().toLocaleLowerCase('tr'));
+  document.querySelectorAll('.rol-kutu').forEach(k => {
+    k.checked = parcalar.includes(k.value.toLocaleLowerCase('tr'));
+  });
+  /* Hiçbiri tutmadıysa (eski/serbest metin) Müşteri varsayılan */
+  if (!document.querySelectorAll('.rol-kutu:checked').length) {
+    const ilk = document.querySelector('.rol-kutu');
+    if (ilk) ilk.checked = true;
+  }
+  rolleriTopla();
+}
+
+function tipDegisti() {
+  rolleriTopla();
+  // Üretici de tedarikçi sayılır: ürün tedarikçisi + kısaltma alanları açılır
+  const t = document.getElementById('cTip').value;
+  document.getElementById('tedarikciAlan').style.display =
+    (t === 'Tedarikçi' || t === 'Üretici') ? '' : 'none';
+  // Üretici seçilince "ürün tedarikçisi" otomatik işaretli gelsin
+  if (t === 'Üretici') document.getElementById('cUrunTed').checked = true;
+}
+
+async function cariKaydet() {
+  const unvan = document.getElementById('cUnvan').value.trim();
+  if (!unvan) { bildir('Ünvan zorunlu.', true); return; }
+  const tip = document.getElementById('cTip').value;
+  const btn = document.getElementById('cKaydet');
+  btn.disabled = true; btn.textContent = 'Kaydediliyor…';
+  const govde = {
+    unvan, cari_tip: tip,
+    ulke: document.getElementById('cUlke').value,
+    telefon: document.getElementById('cTelefon').value,
+    email: document.getElementById('cEmail').value,
+    adres: document.getElementById('cAdres').value,
+    vergi_dairesi: document.getElementById('cVergiDairesi').value.trim(),
+    vergi_no: document.getElementById('cVergiNo').value.trim(),
+    yetkili: document.getElementById('cYetkili').value.trim(),
+    iban: document.getElementById('cIban').value.trim(),
+    para_birimi: document.getElementById('cDoviz').value,
+    risk_limiti: parseFloat(document.getElementById('cRisk').value) || null,
+    odeme_vadesi_gun: parseInt(document.getElementById('cVade').value, 10) || null,
+    /* Admin değilse bu iki alan gönderilmez — boş açılır listeden
+       gelen null, mevcut sahipliği silerdi. */
+    ...(window.ADMIN ? {
+      sorumlu: document.getElementById('cSorumlu').value || null,
+      gorunurluk: document.getElementById('cGorunurluk').value,
+    } : {}),
+    urun_tedarikcisi: (tip === 'Tedarikçi' || tip === 'Üretici') && document.getElementById('cUrunTed').checked,
+    uretici_kisaltma: (tip === 'Tedarikçi' || tip === 'Üretici') ? document.getElementById('cKisaltma').value : null
+  };
+  try {
+    if (DUZENLENEN) {
+      await api(`/api/cari/${encodeURIComponent(DUZENLENEN.id)}`, { method: 'PUT', body: JSON.stringify(govde) });
+      bildir('Cari güncellendi · ' + unvan);
+    } else {
+      const d = await api('/api/cari', { method: 'POST', body: JSON.stringify(govde) });
+      bildir('Cari oluşturuldu · ' + unvan);
+    }
+    modalKapat(); await yukle();
+  } catch (e) { /* */ }
+  finally { btn.disabled = false; btn.textContent = 'Kaydet'; }
+}
+
+document.querySelectorAll('#tipSecim button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('#tipSecim button').forEach(x => x.classList.remove('aktif'));
+  b.classList.add('aktif'); TIP = b.dataset.t; ciz();
+});
+let araZaman;
+document.getElementById('ara').addEventListener('input', e => {
+  clearTimeout(araZaman);
+  araZaman = setTimeout(() => { ARA = e.target.value; ciz(); }, 200);
+});
+
+/* ═══ CARİ HAREKET ═══
+   POST /api/cari/hareket {cari_id, islem_tip, borc/alacak veya tutar, doviz,
+     vade_tarihi, evrak_no, aciklama, hedef_cari_id/hedef_kasa_id (transfer)}
+   Backend borç/alacak yönünü islem_tip'ten belirler:
+     Fatura (Satis)  → müşteri bize borçlanır  → BORÇ
+     Fatura (Alis)   → biz tedarikçiye borçluyuz → ALACAK
+     Tahsilat/Avans Tahsilati → ALACAK (borcu azaltır)
+     Odeme/Avans Odemesi      → BORÇ
+   DELETE /api/cari/hareket/<id> → hareketi geri al */
+
+const BORC_TIPLERI = ['Fatura (Satis)', 'Odeme', 'Ödeme', 'Avans Odemesi',
+                      'Avans Ödemesi',
+                      /* AB1: devir borç yönü. Liste dışında kalan her
+                         tip ALACAK yazılıyor; açılış bakiyesi bu
+                         yüzden hep alacak oluyordu. */
+                      'Acilis Bakiyesi (Borc)',
+                      'Vade Farki (Borc)', 'Kur Farki (Borc)', 'Iade (Alis)'];
+let HAR_CARI = null, HAR_KASALAR = [], HAR_SIPARISLER = [];
+let TAH_CARI = null, ACIK_FATURALAR = [];
+
+/* ═══ TAHSİLAT / ÖDEME ═══
+   Fatura seçilirse → POST /api/fatura/<id>/tahsilat  (cari VE kasa birlikte güncellenir)
+   Fatura seçilmezse → POST /api/cari/hareket         (yalnızca cari defteri) */
+async function tahsilatAc(id) {
+  /* TEK FORM (BF1).
+     Eskiden ayrı bir "Tahsilat / Ödeme" formu vardı; onda fatura
+     seçimi vardı ama DÖVİZ yoktu, hareket formunda ise tersi.
+     İkisi de işi yarım yapıyordu. Artık tahsilat düğmesi de tam
+     donanımlı hareket formunu açıyor, işlem tipi hazır seçili. */
+  const c = (TUM || []).find(x => x.id === id) || {};
+  await hareketAc(id, c.unvan || id);
+  const sel = document.getElementById('hIslem');
+  if (sel) {
+    /* Tedarikçiye ÖDEME, müşteriden TAHSİLAT varsayılanı. */
+    const tedarikci = String(c.cari_tip || '').toLowerCase().includes('tedarik');
+    const hedef = tedarikci ? 'Ödeme' : 'Tahsilat';
+    const uy = [...sel.options].find(o => o.value.includes(hedef)
+      || o.value.includes(hedef.replace('Ö', 'O')));
+    if (uy) { sel.value = uy.value; hareketTipiDegisti(); }
+  }
+}
+function tahsilatKapat() { document.getElementById('tahModal').classList.remove('acik'); }
+
+function faturaSecildi() {
+  const fid = document.getElementById('tFatura').value;
+  const f = ACIK_FATURALAR.find(x => x.id === fid);
+  const not = document.getElementById('tNot');
+  not.style.display = '';
+  if (f) {
+    document.getElementById('tTutar').value = f.kalan;
+    not.style.background = 'var(--verde-acik)'; not.style.color = 'var(--verde)';
+    not.textContent = 'Faturaya işlenecek: cari bakiyesi VE kasa birlikte güncellenir.';
+  } else {
+    not.style.background = 'var(--kehribar-bg)'; not.style.color = 'var(--kehribar)';
+    not.textContent = 'Fatura seçilmedi: yalnızca cari defterine işlenir, kasaya yansımaz.';
+  }
+}
+
+async function tahsilatKaydet() {
+  const tutar = parseFloat(document.getElementById('tTutar').value);
+  if (!tutar || tutar <= 0) { bildir('Geçerli bir tutar gir.', true); return; }
+  const b = BAKIYE[TAH_CARI.id] || { net: 0 };
+  const odeme = b.net < 0;
+  const fid = document.getElementById('tFatura').value;
+  const kasaId = document.getElementById('tKasa').value;
+  const btn = document.getElementById('tKaydet');
+  btn.disabled = true; btn.textContent = 'Kaydediliyor…';
+  try {
+    if (fid && fid.startsWith('STOK:')) {
+      /* STOK ALIŞ BORCU (AF1): `Fatura` kaydı yok, o yüzden
+         /api/fatura/<id>/tahsilat çalışmaz (404 verirdi).
+         Cari hareket olarak yazılır ve `baglanti_id` ile o alışa
+         bağlanır — açık borç listesi ödemeyi buradan düşer. */
+      await api('/api/cari/hareket', {
+        method: 'POST',
+        body: JSON.stringify({
+          cari_id: TAH_CARI.id,
+          islem_tip: odeme ? 'Odeme' : 'Tahsilat',
+          tutar, alacak: odeme ? 0 : tutar, borc: odeme ? tutar : 0,
+          doviz: (ACIK_FATURALAR.find(f => 'STOK:' + (f.fatura_no || f.id) === fid) || {}).doviz || 'USD',
+          kasa_id: kasaId ? parseInt(kasaId) : null,
+          baglanti_tip: 'stok_fatura',
+          baglanti_id: fid.slice(5),
+          vade_tarihi: document.getElementById('tTarih').value || null,
+          evrak_no: document.getElementById('tEvrak').value,
+          aciklama: document.getElementById('tAciklama').value
+        })
+      });
+    } else if (fid) {
+      await api(`/api/fatura/${encodeURIComponent(fid)}/tahsilat`, {
+        method: 'POST',
+        body: JSON.stringify({
+          tutar, kasa_id: kasaId ? parseInt(kasaId) : null, tahsilat_tipi: 'nakit',
+          evrak_no: document.getElementById('tEvrak').value,
+          aciklama: document.getElementById('tAciklama').value
+        })
+      });
+    } else {
+      await api('/api/cari/hareket', {
+        method: 'POST',
+        body: JSON.stringify({
+          cari_id: TAH_CARI.id,
+          islem_tip: odeme ? 'Odeme' : 'Tahsilat',
+          tutar, alacak: odeme ? 0 : tutar, borc: odeme ? tutar : 0,
+          doviz: 'USD',
+          vade_tarihi: document.getElementById('tTarih').value || null,
+          evrak_no: document.getElementById('tEvrak').value,
+          aciklama: document.getElementById('tAciklama').value
+        })
+      });
+    }
+    bildir((odeme ? 'Ödeme' : 'Tahsilat') + ' kaydedildi · ' + para(tutar));
+    tahsilatKapat();
+    await yukle();
+  } catch (e) { /* */ }
+  finally { btn.disabled = false; btn.textContent = 'Kaydet'; }
+}
+
+async function hareketAc(cariId, unvan) {
+  HAR_CARI = cariId;
+  cekmeceKapat();
+  document.getElementById('harAlt').textContent = `${unvan} · ${cariId}`;
+  document.getElementById('hTutar').value = '';
+  document.getElementById('hEvrak').value = '';
+  document.getElementById('hAciklama').value = '';
+  document.getElementById('hVade').valueAsDate = new Date();
+  belgeTarihiVarsayilan();   // BT1
+  // KDV kontrolünü varsayılana döndür (önceki faturanın oranı taşınmasın)
+  document.getElementById('hKdvOranSec').value = '20';
+  document.getElementById('hKdvOran').value = '20';
+  document.getElementById('hKdvOranSerbest').style.display = 'none';
+  document.getElementById('hKdvDahil').value = '0';
+  document.getElementById('hKdvOnizle').textContent = '—';
+  document.getElementById('harModal').classList.add('acik');
+  // Carinin siparişleri — sipariş bazlı takip/ekstre/avans devri için
+  const sipSel = document.getElementById('hSiparisSec');
+  sipSel.innerHTML = '<option value="">Yükleniyor…</option>';
+  HAR_SIPARISLER = [];
+  api(`/api/siparis?musteri=${encodeURIComponent(unvan)}&per_page=100`).then(d => {
+    HAR_SIPARISLER = d.data || [];
+    sipSel.innerHTML = '<option value="">— sipariş bağlama —</option>' +
+      HAR_SIPARISLER.map(s => `<option value="${kacar(s.id)}">${kacar(s.id)} · ${kacar(s.durum || '')}</option>`).join('');
+  }).catch(() => { sipSel.innerHTML = '<option value="">— sipariş yok —</option>'; });
+  // Transfer hedefleri
+  if (!HAR_KASALAR.length) {
+    try { HAR_KASALAR = (await api('/api/kasa')).filter(k => !k.ana_kasa); } catch (e) { HAR_KASALAR = []; }
+  }
+  hareketTipiDegisti();
+}
+function hareketKapat() { document.getElementById('harModal').classList.remove('acik'); }
+
+/* KDV oranı seçimi — hazır oranlar veya serbest giriş.
+   "Diğer oran…" seçilince yanında serbest yüzde kutusu açılır. */
+function kdvOranDegisti() {
+  const sec = document.getElementById('hKdvOranSec');
+  const kutu = document.getElementById('hKdvOranSerbest');
+  const inp = document.getElementById('hKdvOran');
+  if (sec.value === 'diger') {
+    kutu.style.display = 'flex';
+    inp.focus(); inp.select();
+  } else {
+    kutu.style.display = 'none';
+    inp.value = sec.value;      // seçilen hazır oranı gizli alana yaz
+  }
+  kdvOnizle();
+}
+/* Etkin KDV oranı: hazır seçim veya serbest giriş */
+function kdvOraniAl() {
+  const sec = document.getElementById('hKdvOranSec');
+  if (!sec) return 0;
+  return sec.value === 'diger'
+    ? (parseFloat(document.getElementById('hKdvOran').value) || 0)
+    : (parseFloat(sec.value) || 0);
+}
+
+/* KDV canlı önizleme — kullanıcı matrah/KDV/toplam ayrımını anında görsün */
+function kdvOnizle() {
+  const kutu = document.getElementById('hKdvOnizle');
+  if (!kutu) return;
+  const tutar = parseFloat(document.getElementById('hTutar').value) || 0;
+  const oran = kdvOraniAl();
+  const dahil = document.getElementById('hKdvDahil').value === '1';
+  const dov = document.getElementById('hDoviz').value || 'USD';
+  if (!tutar || !oran) { kutu.textContent = '—'; return; }
+  let matrah, kdv, toplam;
+  if (dahil) { toplam = tutar; matrah = tutar / (1 + oran / 100); kdv = toplam - matrah; }
+  else { matrah = tutar; kdv = matrah * oran / 100; toplam = matrah + kdv; }
+  kutu.innerHTML = `Matrah <b>${para2(matrah, dov)}</b><br>KDV <b>${para2(kdv, dov)}</b><br>` +
+                   `Toplam <b style="color:var(--murekkep)">${para2(toplam, dov)}</b>`;
+}
+
+function hareketTipiDegisti() {
+  /* ÇEK SEÇİLDİYSE çek modülüne git (CK1). Cari ön seçili gelir. */
+  const _t = (document.getElementById('hIslem') || {}).value || '';
+  if (_t === '__cek_alinan' || _t === '__cek_verilen') {
+    const yon = _t === '__cek_alinan' ? 'alinan' : 'verilen';
+    /* CARİ YOKSA GİTME (ON1).
+       Boş `cari=` ile gidince çek formunda listedeki İLK cari
+       seçili kalıyordu; kullanıcı fark etmezse hareket yanlış
+       cariye yazılırdı. Eksik bilgiyle devam etmektense durmak
+       yeğdir. */
+    if (!HAR_CARI) {
+      bildir('Önce bir cari seçin.', true);
+      document.getElementById('hIslem').value = 'Tahsilat';
+      return;
+    }
+    location.href = `/cek?yeni=${yon}&cari=${encodeURIComponent(HAR_CARI)}`;
+    return;
+  }
+  /* Kur farkı kutucuğu ve fatura listesi işlem tipine bağlı —
+     tip değişince ikisi de yeniden değerlendirilmeli. */
+  kurFarkiAlaniGoster();
+  hFaturalariYukle();
+  const tip = document.getElementById('hIslem').value;
+  const transfer = tip === 'Bakiye Transfer';
+  document.getElementById('hTransferAlan').style.display = transfer ? '' : 'none';
+  const tyon = transfer ? document.getElementById('hTransferYon').value : '';
+  // Sipariş etiketi: normal hareketlerde ve cari→cari transferde görünür
+  document.getElementById('hSiparisAlan').style.display = (!transfer || tyon === 'cari') ? '' : 'none';
+  // Kasa seçici: yalnız tahsilat/ödeme türlerinde
+  const kasali = ['Tahsilat', 'Avans Tahsilati', 'Odeme', 'Avans Odemesi'].includes(tip);
+  document.getElementById('hKasaAlan').style.display = kasali ? '' : 'none';
+  // KDV alanı: yalnız fatura nitelikli işlemlerde (alış/satış faturası)
+  const faturali = ['Fatura (Satis)', 'Fatura (Alis)'].includes(tip);
+  document.getElementById('hKdvAlan').style.display = faturali ? '' : 'none';
+  if (faturali) kdvOnizle();
+  if (kasali) {
+    const ks = document.getElementById('hKasa');
+    if (ks.options.length <= 1 && HAR_KASALAR.length) {
+      ks.innerHTML = '<option value="">— kasa seçin (zorunlu) —</option>' +
+        HAR_KASALAR.map(k => `<option value="${k.id}">${kasaEtiket(k)}</option>`).join('');
+    }
+    /* Tahsilat/ödemede para BİR YERE gider. Boş seçenek varsayılan
+       olursa unutuluyor ve para iki ekran arasında kayboluyor:
+       cari bakiyesi değişiyor, kasada karşılığı olmuyor.
+       Bu yüzden aynı dövizli ilk kasa kendiliğinden seçilir;
+       "kasaya işleme" bilinçli bir tercih olarak kalır. */
+    if (!ks.value) {
+      const dv = document.getElementById('hDoviz').value;
+      const uygun = HAR_KASALAR.find(k => k.doviz === dv);
+      if (uygun) ks.value = String(uygun.id);
+    }
+  }
+
+  // Hedef listesi
+  if (transfer) {
+    const yon = tyon;
+    document.getElementById('hTransferTurAlan').style.display = yon === 'cari' ? '' : 'none';
+    document.getElementById('hHedefAlan').style.display = yon === 'siparis' ? 'none' : '';
+    document.getElementById('hAvansAlan').style.display = yon === 'siparis' ? '' : 'none';
+    if (yon === 'siparis') {
+      // Avans devri: aynı carinin siparişleri arasında
+      const secHtml = HAR_SIPARISLER.length
+        ? HAR_SIPARISLER.map(s => `<option value="${kacar(s.id)}">${kacar(s.id)} · ${kacar(s.durum || '')}</option>`).join('')
+        : '<option value="">— bu carinin siparişi yok —</option>';
+      const k = document.getElementById('hAvKaynak'), hd = document.getElementById('hAvHedef');
+      if (!k.options.length || k.dataset.cari !== HAR_CARI) {
+        k.innerHTML = '<option value="">— Seçin —</option>' + secHtml;
+        hd.innerHTML = '<option value="">— Seçin —</option>' + secHtml;
+        k.dataset.cari = HAR_CARI; hd.dataset.cari = HAR_CARI;
+      }
+    } else {
+      const sel = document.getElementById('hHedef');
+      sel.innerHTML = yon === 'kasa'
+        ? (HAR_KASALAR.length
+            ? HAR_KASALAR.map(k => `<option value="${k.id}">${kasaEtiket(k)}</option>`).join('')
+            : '<option value="">— kasa yok —</option>')
+        : TUM.filter(c => c.id !== HAR_CARI)
+             .map(c => `<option value="${kacar(c.id)}">${kacar(c.unvan)}</option>`).join('');
+    }
+  }
+
+  // Yön açıklaması
+  const not = document.getElementById('harNot');
+  if (transfer) {
+    not.style.background = 'var(--mavi-bg)'; not.style.color = 'var(--mavi)';
+    const yon = tyon;
+    if (yon === 'cari') {
+      not.innerHTML = document.getElementById('hTransferTur').value === 'borc'
+        ? '<strong>BORÇ transferi:</strong> bu carinin bize olan borcu hedefe taşınır — burada borç kapanır, hedef cariye borç yazılır.'
+        : '<strong>ALACAK transferi:</strong> bu carinin bizden alacağı hedefe taşınır — burada alacak kapanır, hedef caride alacak oluşur.';
+    } else if (yon === 'siparis') {
+      not.innerHTML = '<strong>AVANS DEVRİ:</strong> avans bir siparişten diğerine taşınır; cari bakiye değişmez. Kaynak siparişi seç, kullanılabilir avansı göstereyim.';
+      avansBakiyeGoster();
+    } else {
+      not.textContent = 'Bakiye bu cariden seçilen kasaya taşınır. Çift taraflı kayıt oluşur.';
+    }
+  } else if (tip === 'Mahsup') {
+    not.style.background = 'var(--mavi-bg)'; not.style.color = 'var(--mavi)';
+    not.textContent = 'Borç ve alacak birbirine mahsup edilir.';
+  } else if (BORC_TIPLERI.includes(tip)) {
+    not.style.background = 'var(--kirmizi-bg)'; not.style.color = 'var(--kirmizi)';
+    not.innerHTML = '<strong>BORÇ</strong> kaydı: carinin bize olan borcu artar.';
+  } else {
+    not.style.background = 'var(--verde-acik)'; not.style.color = 'var(--verde)';
+    not.innerHTML = '<strong>ALACAK</strong> kaydı: carinin bize olan borcu azalır.';
+  }
+}
+
+/* Kaynak sipariş seçilince kullanılabilir avansı göster */
+async function avansBakiyeGoster() {
+  const sip = document.getElementById('hAvKaynak').value;
+  const not = document.getElementById('harNot');
+  if (!sip) return;
+  try {
+    const d = await api(`/api/siparis/${encodeURIComponent(sip)}/avans_bakiyesi`);
+    not.innerHTML = (d.avans || 0) > 0
+      ? `<strong>AVANS DEVRİ:</strong> ${kacar(sip)} siparişinde kullanılabilir ${d.yon === 'verilen' ? 'verilen ' : ''}avans: <strong>${para(d.avans, d.doviz)}</strong>. Tutar alanına devredilecek kısmı yaz.`
+      : `<strong>AVANS DEVRİ:</strong> ${kacar(sip)} siparişinde devredilebilir avans yok. (Avans, "Avans Tahsilatı/Ödemesi" tipiyle siparişe bağlı kaydedilmiş olmalı.)`;
+  } catch (e) { /* */ }
+}
+
+async function hareketKaydet() {
+  const tutar = parseFloat(document.getElementById('hTutar').value) || 0;
+  if (tutar <= 0) { bildir('Geçerli bir tutar gir.', true); return; }
+  const tip = document.getElementById('hIslem').value;
+  const btn = document.getElementById('hKaydet');
+
+  // ── Avans devri: ayrı endpoint, cari bakiye değişmez ──
+  if (tip === 'Bakiye Transfer' && document.getElementById('hTransferYon').value === 'siparis') {
+    const kaynakSip = document.getElementById('hAvKaynak').value;
+    const hedefSip = document.getElementById('hAvHedef').value;
+    if (!kaynakSip || !hedefSip) { bildir('Kaynak ve hedef siparişi seç.', true); return; }
+    if (kaynakSip === hedefSip) { bildir('Kaynak ve hedef sipariş aynı olamaz.', true); return; }
+    btn.disabled = true; btn.textContent = 'Devrediliyor…';
+    try {
+      const d = await api('/api/avans/devret', {
+        method: 'POST',
+        body: JSON.stringify({ kaynak_siparis_id: kaynakSip, hedef_siparis_id: hedefSip, tutar })
+      });
+      bildir(d.mesaj || 'Avans devredildi');
+      hareketKapat();
+      await yukle();
+    } catch (e) { /* */ }
+    finally { btn.disabled = false; btn.textContent = 'Kaydet'; }
+    return;
+  }
+
+  btn.disabled = true; btn.textContent = 'Kaydediliyor…';
+
+  /* SK1: sözleşme kuru işaretliyse kur ve gerekçe ZORUNLU */
+  const _sozKur = document.getElementById('hSozlesmeKur');
+  let _kurDeger = null, _kurGerekce = '';
+  if (_sozKur && _sozKur.checked) {
+    _kurDeger = parseFloat(document.getElementById('hKur').value);
+    _kurGerekce = (document.getElementById('hKurGerekce').value || '').trim();
+    if (!_kurDeger || _kurDeger <= 0) {
+      bildir('Sözleşme kuru işaretli — kur değerini girin', true);
+      btn.disabled = false; btn.textContent = 'Kaydet'; return;
+    }
+    if (_kurGerekce.length < 3) {
+      bildir('Sözleşme kuru için GEREKÇE zorunlu (örn. "Sözleşme madde 4")', true);
+      btn.disabled = false; btn.textContent = 'Kaydet'; return;
+    }
+  }
+
+  const govde = {
+    cari_id: HAR_CARI,
+    islem_tip: tip,
+    doviz: document.getElementById('hDoviz').value,
+    // BT1: belge tarihi — sunucu bu tarihin kurunu kullanır
+    hareket_tarihi: document.getElementById('hBelgeTarihi').value || null,
+    vade_tarihi: document.getElementById('hVade').value || null,
+    evrak_no: document.getElementById('hEvrak').value,
+    aciklama: document.getElementById('hAciklama').value
+  };
+  if (_kurDeger) {              // SK1
+    govde.kur_uygulanan = _kurDeger;
+    govde.kur_gerekce = _kurGerekce;
+  }
+  if (document.getElementById('hSiparisSec').value &&
+      (tip !== 'Bakiye Transfer' || document.getElementById('hTransferYon').value === 'cari'))
+    govde.siparis_id = document.getElementById('hSiparisSec').value;
+  if (['Tahsilat', 'Avans Tahsilati', 'Odeme', 'Avans Odemesi'].includes(tip)) {
+    const _kv = document.getElementById('hKasa').value;
+    if (_kv) {
+      govde.kasa_id = parseInt(_kv);
+    } else {
+      /* Kasa ZORUNLU — sunucu da reddediyor (CH1). Burada erken
+         durdurmak, kullanıcıyı sunucu hatasına göndermekten iyi. */
+      bildir(tip + ' kaydında kasa seçimi zorunlu. Para takip etmediğiniz '
+           + 'bir hesaba geldiyse önce o hesabı kasa olarak tanımlayın.', true);
+      document.getElementById('hKasa').focus();
+      return;
+    }
+  }
+  // Borç/alacak yönü: backend bazı tiplerde 'tutar', bazılarında borc/alacak bekler
+  if (BORC_TIPLERI.includes(tip)) govde.borc = tutar;
+  else govde.alacak = tutar;
+  govde.tutar = tutar;
+
+  // KDV — yalnız fatura nitelikli işlemlerde gönderilir
+  if (['Fatura (Satis)', 'Fatura (Alis)'].includes(tip)) {
+    govde.kdv_oran = kdvOraniAl();
+    govde.kdv_dahil_mi = document.getElementById('hKdvDahil').value === '1';
+  }
+
+  if (tip === 'Bakiye Transfer') {
+    const yon = document.getElementById('hTransferYon').value;
+    const hedef = document.getElementById('hHedef').value;
+    if (!hedef) { bildir('Hedef seç.', true); btn.disabled = false; btn.textContent = 'Kaydet'; return; }
+    govde.transfer_yonu = yon;
+    if (yon === 'kasa') govde.hedef_kasa_id = parseInt(hedef);
+    else { govde.hedef_cari_id = hedef; govde.transfer_tip = document.getElementById('hTransferTur').value; }
+  }
+
+  try {
+    /* Kullanıcı AÇIKÇA işaretlediyse kur farkı cari hesaba işlenir.
+       İşaretlemezse sunucu hesaplar, bildirir ama KAYIT AÇMAZ. */
+    const kfKutu = document.getElementById('hKurFarkiIslet');
+    if (kfKutu && kfKutu.checked) govde.kur_farki_islet = true;
+
+    /* SEÇİLEN FATURAYA MAHSUP (BF1).
+       Stok alışının `Fatura` kaydı YOK — 'STOK:' önekiyle geliyor
+       ve cari harekete `baglanti_id` ile bağlanıyor. Gerçek
+       faturalar ise fatura kimliğiyle bağlanır. */
+    const fSec = (document.getElementById('hFatura') || {}).value || '';
+    if (fSec.startsWith('STOK:')) {
+      govde.baglanti_tip = 'stok_fatura';
+      govde.baglanti_id = fSec.slice(5);
+    } else if (fSec) {
+      govde.karsilik_fatura_id = fSec;
+    }
+
+    const d = await api('/api/cari/hareket', { method: 'POST', body: JSON.stringify(govde) });
+    bildir(d.mesaj || 'Hareket kaydedildi · ' + para(tutar, govde.doviz));
+
+    /* Kur farkı hesaplandı ama İŞLENMEDİ — kullanıcıya söyle.
+       Sessiz geçmek, "kur farkı yok sandım" durumuna yol açar. */
+    if (d.kur_farki_bilgi && d.kur_farki_bilgi.tutar) {
+      setTimeout(() => bildir(d.kur_farki_bilgi.mesaj, true), 1200);
+    }
+    hareketKapat();
+    await yukle();
+  } catch (e) { /* */ }
+  finally { btn.disabled = false; btn.textContent = 'Kaydet'; }
+}
+
+/* ── Sipariş bazlı ekstre ── */
+let SIP_EKSTRE_CARI = null;
+async function sipEkstreAc(cariId, unvan) {
+  SIP_EKSTRE_CARI = cariId;
+  document.getElementById('sipEkstreAlt').textContent = unvan;
+  const sel = document.getElementById('sipEkstreSec');
+  sel.innerHTML = '<option value="">Yükleniyor…</option>';
+  document.getElementById('sipEkstreModal').classList.add('acik');
+  try {
+    const d = await api(`/api/siparis?musteri=${encodeURIComponent(unvan)}&per_page=100`);
+    const sips = d.data || [];
+    sel.innerHTML = sips.length
+      ? sips.map(s => `<option value="${kacar(s.id)}">${kacar(s.id)} · ${kacar(s.durum || '')}</option>`).join('')
+      : '<option value="">— bu carinin siparişi yok —</option>';
+  } catch (e) { sel.innerHTML = '<option value="">— sipariş yüklenemedi —</option>'; }
+}
+function sipEkstreKapat() { document.getElementById('sipEkstreModal').classList.remove('acik'); }
+function sipEkstreYazdir() {
+  const sip = document.getElementById('sipEkstreSec').value;
+  if (!sip) { bildir('Sipariş seç.', true); return; }
+  window.open(`/api/cari/${encodeURIComponent(SIP_EKSTRE_CARI)}/siparis_ekstre_pdf?siparis_id=${encodeURIComponent(sip)}`, '_blank');
+  sipEkstreKapat();
+}
+
+async function hareketSil(hareketId, cariId) {
+  if (!await onayla('Bu cari hareketi silinsin mi? Bakiye yeniden hesaplanır.', { tehlike: true })) return;
+  try {
+    const d = await api(`/api/cari/hareket/${encodeURIComponent(hareketId)}`, { method: 'DELETE' });
+    bildir(d.mesaj || 'Hareket silindi');
+    await yukle();
+    detayAc(cariId);
+  } catch (e) { /* */ }
+}
+
+yukle();
+</script>
+{% endblock %}

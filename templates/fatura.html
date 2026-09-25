@@ -1,0 +1,1153 @@
+{% extends "base.html" %}
+{% block title %}Faturalar{% endblock %}
+
+{% block header_right %}
+<div class="disa">
+  <button class="disa-btn" onclick="disaAc(event, 'fatura')" title="Dışa aktar">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M12 3v12M8 11l4 4 4-4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>
+    Dışa Aktar
+  </button>
+  <div class="disa-menu" id="disaMenu-fatura">
+    <button onclick="disaAktar('fatura','xlsx')"><span style="background:#1D6F42">XLS</span> Excel indir</button>
+    <button onclick="disaAktar('fatura','pdf')"><span style="background:#B23A2E">PDF</span> PDF indir</button>
+  </div>
+</div>
+<button class="btn-yeni" onclick="yeniFaturaAc()">
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 5v14M5 12h14"/></svg>
+  Yeni Fatura
+</button>
+{% endblock %}
+
+{% block head %}
+<style>
+  .arac-cubugu{display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap}
+  .cip{border:1px solid var(--cizgi-koyu);background:var(--yuzey);border-radius:20px;padding:6px 13px;font-size:.8rem;font-weight:500;color:var(--soluk)}
+  .cip.aktif{border-color:var(--verde);background:var(--verde-acik);color:var(--verde);font-weight:600}
+  .suz{margin-left:auto}
+  .suz input{border:1px solid var(--cizgi-koyu);border-radius:var(--r-kucuk);padding:7px 11px;font-family:var(--govde);font-size:.85rem;min-width:220px}
+  .suz input:focus{outline:none;border-color:var(--verde);box-shadow:0 0 0 3px var(--verde-acik)}
+  tbody tr{cursor:pointer}
+  .ilerleme{height:5px;background:var(--notr-bg);border-radius:3px;overflow:hidden;margin-top:4px;width:92px;margin-left:auto}
+  .ilerleme i{display:block;height:100%;background:var(--verde);border-radius:3px}
+  .tahs-satir{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--cizgi);font-size:.84rem}
+  .tahs-satir:last-child{border-bottom:0}
+  .tahs-satir .t{font-family:var(--mono);font-size:.74rem;color:var(--soluk);width:74px;flex:none}
+  .tahs-satir .m{margin-left:auto;font-family:var(--mono);font-weight:600;color:var(--verde)}
+  .modal-ortu{position:fixed;inset:0;background:rgba(25,28,26,.4);display:none;z-index:45;place-items:center;padding:20px}
+  .modal-ortu.acik{display:grid}
+  .modal{width:520px;max-width:100%;background:var(--yuzey);border-radius:14px;box-shadow:0 24px 70px rgba(25,28,26,.3);overflow:hidden}
+  .modal-bas{padding:18px 22px 0}
+  .modal-bas h3{font-family:var(--baslik);font-weight:700;font-size:1.15rem}
+  .modal-bas p{color:var(--soluk);font-size:.85rem;margin-top:3px}
+  .modal-gov{padding:18px 22px}
+  .form-satir{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
+  .form-satir.f3{grid-template-columns:repeat(3,1fr)} .form-satir.f4{grid-template-columns:repeat(4,1fr)}
+  @media (max-width:760px){.form-satir.f3,.form-satir.f4{grid-template-columns:1fr 1fr}}
+  .bolum-baslik{font-size:.75rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--soluk);margin:16px 0 10px;padding-top:14px;border-top:1px solid var(--cizgi)}
+  .form-alan label{display:block;font-size:.74rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--soluk);margin-bottom:5px}
+  .form-alan input,.form-alan select,.form-alan textarea{width:100%;border:1px solid var(--cizgi-koyu);border-radius:var(--r-kucuk);padding:9px 11px;font-family:var(--govde);font-size:.9rem;background:var(--yuzey)}
+  .form-alan textarea{resize:vertical;min-height:52px}
+  .form-alan input:focus,.form-alan select:focus,.form-alan textarea:focus{outline:none;border-color:var(--verde);box-shadow:0 0 0 3px var(--verde-acik)}
+  .tipi-rozet{display:inline-block;margin-left:6px;font-size:.6rem;font-weight:800;letter-spacing:.05em;border-radius:4px;padding:1px 5px;vertical-align:middle}
+  .tipi-rozet.transit{color:var(--mavi);border:1px solid var(--mavi)}
+  .tipi-rozet.teklif{color:var(--kehribar);border:1px solid var(--kehribar)}
+  .modal-alt{padding:14px 22px 20px;display:flex;gap:10px;justify-content:flex-end;border-top:1px solid var(--cizgi)}
+  .iptal-btn{border:1px solid var(--cizgi-koyu);background:var(--yuzey);border-radius:var(--r-kucuk);padding:10px 18px;font-weight:600}
+  .not{border-radius:var(--r-kucuk);padding:9px 12px;font-size:.8rem;margin-bottom:12px;background:var(--verde-acik);color:var(--verde)}
+</style>
+{% endblock %}
+
+{% block content %}
+<h1 class="g-baslik">Faturalar</h1>
+<p class="g-alt">Kes, tahsil et, takip et. Fatura kesilince cariye borç işlenir; tahsilat kasaya yansır.</p>
+<svg class="damar" viewBox="0 0 190 10" aria-hidden="true">
+  <path d="M0 6 C 25 2, 45 9, 70 5 S 120 1, 150 6 S 180 8, 190 4"/>
+  <path class="d2" d="M0 8 C 30 5, 60 10, 95 6 S 160 3, 190 7"/>
+</svg>
+
+<div class="kpiler" style="grid-template-columns:repeat(3,1fr)">
+  <div class="kpi"><label>Kesilmemiş (Taslak)</label><div class="deger" id="kTaslak">—</div><div class="ek" id="kTaslakEk">fatura no bekliyor</div></div>
+  <div class="kpi"><label>Tahsil Bekleyen</label><div class="deger" id="kBekleyen">—</div><div class="ek" id="kBekleyenEk">—</div></div>
+  <div class="kpi"><label>Tahsil Edilen</label><div class="deger" id="kTahsil">—</div><div class="ek" id="kTahsilEk">—</div></div>
+</div>
+
+<div class="arac-cubugu">
+  <button class="cip aktif" data-d="">Tümü</button>
+  <button class="cip" data-d="Taslak">Taslak</button>
+  <button class="cip" data-d="Kesildi">Kesildi</button>
+  <button class="cip" data-d="Kismi Tahsil">Kısmi Tahsil</button>
+  <button class="cip" data-d="Tahsil Edildi">Tahsil Edildi</button>
+  <div class="suz"><input id="ara" placeholder="Müşteri, fatura no ara…" autocomplete="off"></div>
+</div>
+
+<div class="tablo-kutu">
+  <table>
+    <thead><tr><th>Fatura</th><th>Müşteri</th><th>Durum</th><th class="sag">Tutar</th><th class="sag">Tahsilat</th><th class="sag">Vade</th></tr></thead>
+    <tbody id="govde"><tr><td colspan="6" class="yukleniyor">Yükleniyor…</td></tr></tbody>
+  </table>
+</div>
+
+<!-- Fatura no / kes modalı -->
+<div class="modal-ortu" id="kesModal" onclick="if(event.target===this)kesKapat()">
+  <div class="modal" role="dialog" aria-label="Faturayı kes">
+    <div class="modal-bas">
+      <h3>Faturayı Kes</h3>
+      <p id="kesAlt">—</p>
+    </div>
+    <div class="modal-gov">
+      <div class="not">Kesildiğinde cariye borç işlenir ve satış kaydı oluşur. Bu işlem geri alınamaz.</div>
+      <div class="form-satir">
+        <div class="form-alan"><label>Fatura No <span style="color:var(--kirmizi)">*</span></label><input id="kNo" placeholder="MST-2026-001"></div>
+        <div class="form-alan"><label>Vade Tarihi</label><input id="kVade" type="date"></div>
+      </div>
+      <!-- TL1: cariye işlenecek TL karşılığı ve kurun kaynağı KESMEDEN
+           önce görünsün. Eskiden yalnızca ekstrede, satır altında
+           görünüyordu. -->
+      <div id="kTl" style="margin-top:12px;font-size:.82rem;line-height:1.5"></div>
+      <!-- AM1: siparişte avans varsa kesimde mahsup edilecek — kullanıcı
+           kesmeden ÖNCE ödenecek tutarı görsün. -->
+      <div id="kAvans" style="margin-top:10px;font-size:.82rem;line-height:1.5"></div>
+    </div>
+    <div class="modal-alt">
+      <button class="iptal-btn" onclick="kesKapat()">Vazgeç</button>
+      <button class="btn-yeni" id="kKaydet" onclick="faturaKes()">Kes</button>
+    </div>
+  </div>
+</div>
+
+<!-- Fatura bilgileri düzenleme modalı -->
+<!-- ── e-FATURA / ETTN (F6) ──────────────────────────────────────────
+     ETTN, GİB'in e-faturaya verdigi UUID'dir. Fatura kesildikten ve
+     GİB portalina gonderildikten SONRA girilir. -->
+<div class="modal-ortu" id="ettnModal" onclick="if(event.target===this)ettnKapat()">
+  <div class="modal" role="dialog" aria-label="e-Fatura bilgileri" style="width:560px;max-width:100%">
+    <div class="modal-bas">
+      <h3>e-Fatura / ETTN</h3>
+      <p id="ettnAlt">—</p>
+    </div>
+    <div class="modal-gov">
+      <div class="form-alan" style="margin-bottom:12px">
+        <label>ETTN <span style="font-weight:400;color:var(--soluk)">— GİB'in verdiği UUID</span></label>
+        <input id="eEttn" class="mono" placeholder="3f2a9c10-7b45-4e8d-9a12-0c5e6d7f8a90"
+               autocomplete="off" spellcheck="false">
+        <div style="font-size:.72rem;color:var(--soluk);margin-top:5px;line-height:1.4">
+          Tireli ya da tiresiz yapıştırabilirsiniz; sistem düzeltir.
+          Boş bırakıp kaydederseniz kayıtlı ETTN silinir.
+        </div>
+      </div>
+      <div class="form-satir">
+        <div class="form-alan"><label>Senaryo</label>
+          <select id="eSenaryo">
+            <option value="">— Seçin —</option>
+            <option value="IHRACAT">İHRACAT</option>
+            <option value="TEMELFATURA">TEMEL FATURA</option>
+            <option value="TICARIFATURA">TİCARİ FATURA</option>
+            <option value="EARSIVFATURA">e-ARŞİV FATURA</option>
+          </select>
+        </div>
+        <div class="form-alan"><label>GİB Durumu</label>
+          <select id="eDurum">
+            <option value="">— Seçin —</option>
+            <option value="Gonderildi">Gönderildi</option>
+            <option value="Kabul">Kabul</option>
+            <option value="Red">Red</option>
+            <option value="Iptal">İptal</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-alan"><label>GİB Tarihi</label><input id="eTarih" type="date"></div>
+    </div>
+    <div class="modal-alt">
+      <button class="iptal-btn" onclick="ettnKapat()">Vazgeç</button>
+      <button class="btn-yeni" id="eKaydet" onclick="ettnKaydet()">Kaydet</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-ortu" id="duzModal" onclick="if(event.target===this)duzKapat()">
+  <div class="modal" role="dialog" aria-label="Fatura bilgileri" style="width:620px;max-width:100%">
+    <div class="modal-bas">
+      <h3>Fatura Bilgileri</h3>
+      <p id="duzAlt">—</p>
+    </div>
+    <div class="modal-gov">
+      <div class="form-satir">
+        <div class="form-alan"><label>Fatura No</label><input id="dFNo" placeholder="MST-2026-001"></div>
+        <div class="form-alan"><label>Fatura Tipi</label>
+          <select id="dTipi">
+            <option value="stoklu">Stoklu (stoktan satış)</option>
+            <option value="transit">Transit (dış alım)</option>
+            <option value="teklif">Teklif</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-satir">
+        <div class="form-alan"><label>Fatura Tarihi</label><input id="dFTarih" type="date"></div>
+        <div class="form-alan"><label>Vade Tarihi</label><input id="dVade" type="date"></div>
+      </div>
+      <div class="form-satir">
+        <div class="form-alan"><label>Ödeme Şekli</label><select id="dOdeme"></select></div>
+        <div class="form-alan"><label>Teslim Şekli</label><select id="dTeslim"></select></div>
+      </div>
+      <div class="form-satir" style="grid-template-columns:2fr 1fr">
+        <div class="form-alan"><label>Müşteri Adresi</label><textarea id="dAdres" placeholder="Faturada görünür"></textarea></div>
+        <div class="form-alan"><label>Müşteri Ülkesi</label><input id="dUlke" placeholder="USA, Germany…"></div>
+      </div>
+      <!-- FT1/FK2 — tutar ve sözleşme kuru düzenleme.
+           Kalem satırları düzenlenince matrah kalem toplamına eşitlenir;
+           matrahı doğrudan yazmak iskontolu faturalarda kalem toplamını
+           bozmadan düzeltme imkânı verir. -->
+      <div style="border:1px solid var(--cizgi);border-radius:var(--r-kucuk);padding:12px;margin-bottom:12px">
+        <div style="font-size:.78rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--soluk);margin-bottom:8px">Tutar ve Kur</div>
+        <div id="dTutarUyari" class="not" style="display:none;margin-bottom:10px"></div>
+        <div id="dKalemKutu" style="display:none;margin-bottom:10px;max-height:210px;overflow:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:.8rem">
+            <thead><tr style="text-align:left;color:var(--soluk)">
+              <th style="padding:3px 4px;font-weight:600">Kalem</th>
+              <th style="padding:3px 4px;font-weight:600;width:84px">Miktar</th>
+              <th style="padding:3px 4px;font-weight:600;width:96px">Birim Fiyat</th>
+              <th style="padding:3px 4px;font-weight:600;width:96px;text-align:right">Tutar</th>
+            </tr></thead>
+            <tbody id="dKalemGovde"></tbody>
+          </table>
+        </div>
+        <div class="form-satir" style="grid-template-columns:1fr 1fr 1fr">
+          <div class="form-alan"><label>Matrah (KDV hariç)</label>
+            <input id="dMatrah" type="number" step="0.01" oninput="duzMatrahElle()"></div>
+          <div class="form-alan" id="dKdvAlan"><label>KDV Oranı (%)</label>
+            <input id="dKdv" type="number" step="0.01" oninput="duzToplamCiz()"></div>
+          <div class="form-alan" id="dKurAlan"><label>Sözleşme Kuru (TRY)</label>
+            <input id="dKur" type="number" step="0.0001" placeholder="TCMB" oninput="duzToplamCiz()"></div>
+        </div>
+        <div id="dToplamOzet" class="mono" style="font-size:.82rem;color:var(--soluk);line-height:1.5"></div>
+      </div>
+      <div class="form-alan" style="margin-bottom:12px"><label>Kur Farkı Davranışı</label>
+        <select id="dKurFarki">
+          <option value="gider">Gider/Gelir Modu — cari kapansın (ihracat)</option>
+          <option value="cari">Cari Modu — kur farkı cariye yansır (yurt içi)</option>
+        </select>
+        <div style="font-size:.72rem;color:var(--soluk);margin-top:5px;line-height:1.4">
+          <strong>Gider:</strong> sözleşme USD/EUR, kur farkı senin kayıp/kazancın. ·
+          <strong>Cari:</strong> sözleşme TRY, kur farkı müşteriye yansır.
+        </div>
+      </div>
+      <div class="form-alan"><label>Açıklama</label><input id="dAciklama" placeholder="opsiyonel"></div>
+    </div>
+    <div class="modal-alt">
+      <button class="iptal-btn" onclick="duzKapat()">Vazgeç</button>
+      <button class="btn-yeni" id="dKaydet" onclick="duzKaydet()">Kaydet</button>
+    </div>
+  </div>
+</div>
+
+<!-- Tahsilat modalı -->
+<div class="modal-ortu" id="tahModal" onclick="if(event.target===this)tahKapat()">
+  <div class="modal" role="dialog" aria-label="Tahsilat">
+    <div class="modal-bas">
+      <h3>Tahsilat Gir</h3>
+      <p id="tahAlt">—</p>
+    </div>
+    <div class="modal-gov">
+      <div class="not">Cari bakiyesi ve seçilen kasa birlikte güncellenir. Farklı dövizde ödeme, faturayı bugünkü kurdan (TRY köprüsüyle) kapatır; kur farkı otomatik işlenir.</div>
+      <div class="form-satir" style="grid-template-columns:1.4fr 1fr 1fr">
+        <div class="form-alan"><label>Tutar</label><input id="tTutar" type="number" step="0.01" oninput="tahOnizle()"></div>
+        <div class="form-alan"><label>Ödeme Dövizi</label><select id="tDoviz" onchange="tahDovizDegisti()"></select></div>
+        <div class="form-alan" id="tKurAlan" style="display:none"><label>İşlem Kuru (TRY)</label><input id="tKur" type="number" step="0.0001" placeholder="TCMB" oninput="tahOnizle()"></div>
+      </div>
+      <div id="tOnizle" style="display:none;font-family:var(--mono);font-size:.78rem;color:var(--soluk);margin:-6px 0 10px;padding:7px 10px;border:1px dashed var(--cizgi-koyu);border-radius:8px"></div>
+      <div class="form-satir">
+        <div class="form-alan"><label>Kasa</label><select id="tKasa"></select></div>
+        <div class="form-alan"><label>Tahsilat Tipi</label>
+          <select id="tTip" onchange="tahDovizDegisti()"><option value="nakit">Nakit</option><option value="havale">Havale</option><option value="cek">Çek</option></select>
+        </div>
+      </div>
+      <div class="form-satir">
+        <div class="form-alan"><label>Evrak No</label><input id="tEvrak" placeholder="opsiyonel"></div>
+      </div>
+      <div class="form-alan"><label>Açıklama</label><input id="tAciklama" placeholder="opsiyonel"></div>
+    </div>
+    <div class="modal-alt">
+      <button class="iptal-btn" onclick="tahKapat()">Vazgeç</button>
+      <button class="btn-yeni" id="tKaydet" onclick="tahsilatKaydet()">Kaydet</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+
+<!-- ═══ DOĞRUDAN (PROFORMASIZ) FATURA ═══
+     Yurt içi satışta proforma kesilmediği için fatura doğrudan
+     düzenlenebilmeli. Fatura TASLAK doğar; cari borcu ve satış kaydı
+     fatura "Kesildi" yapıldığında mevcut akışta oluşur. -->
+<div class="modal-ortu" id="yfModal" onclick="if(event.target===this)yeniFaturaKapat()">
+  <div class="modal" style="width:920px" role="dialog" aria-label="Yeni fatura">
+    <div class="modal-bas">
+      <h3>Yeni Fatura</h3>
+      <p>Proforma olmadan doğrudan fatura düzenle — yurt içi satış için</p>
+    </div>
+    <div class="modal-gov">
+      <div class="form-satir f3">
+        <div class="form-alan"><label>Müşteri <span style="color:var(--kirmizi)">*</span></label>
+          <select id="yfMusteri" onchange="yfHesapla()"><option value="">— seçin —</option></select></div>
+        <div class="form-alan"><label>Satış Tipi</label>
+          <select id="yfSatisTipi" onchange="yfHesapla()">
+            <option value="yurtici">Yurt içi</option>
+            <option value="ihracat">İhracat</option>
+            <option value="ihrac_kayitli">İhraç kayıtlı</option>
+          </select></div>
+        <div class="form-alan"><label>Döviz</label>
+          <select id="yfDoviz" onchange="yfHesapla()">
+            <option>TRY</option><option>USD</option><option>EUR</option></select></div>
+      </div>
+      <div class="form-satir f3">
+        <div class="form-alan"><label>Fatura No</label>
+          <input id="yfNo" data-buyuk-harf="hayir" placeholder="MST2026000001"></div>
+        <div class="form-alan"><label>Fatura Tarihi</label>
+          <input id="yfTarih" type="date" data-buyuk-harf="hayir"></div>
+        <div class="form-alan"><label>Vade Tarihi</label>
+          <input id="yfVade" type="date" data-buyuk-harf="hayir"></div>
+      </div>
+      <div class="form-satir f3" id="yfKdvAlanlari">
+        <div class="form-alan"><label>KDV Oranı (%)</label>
+          <input id="yfKdv" type="number" step="0.1" min="0" max="100" value="20"
+                 data-buyuk-harf="hayir" oninput="yfHesapla()"></div>
+        <div class="form-alan"><label>Tevkifat</label>
+          <select id="yfTevkifat" onchange="yfHesapla()">
+            <option value="">— yok —</option>
+            <option value="2/10">2/10</option><option value="3/10">3/10</option>
+            <option value="4/10">4/10</option><option value="5/10">5/10</option>
+            <option value="7/10">7/10</option><option value="9/10">9/10</option>
+          </select></div>
+        <div class="form-alan"><label>Ödeme Şekli</label>
+          <input id="yfOdeme" placeholder="opsiyonel"></div>
+      </div>
+
+      <div class="bolum-baslik" style="margin-top:6px">Kalemler</div>
+      <div class="form-satir f4">
+        <div class="form-alan"><label>Cins</label><input id="yfkCins" placeholder="DREAM NIGHT"></div>
+        <div class="form-alan"><label>Miktar</label>
+          <input id="yfkMiktar" type="number" step="0.001" data-buyuk-harf="hayir"></div>
+        <div class="form-alan"><label>Birim</label>
+          <select id="yfkBirim"><option value="m2">m²</option><option value="ton">ton</option>
+            <option value="m3">m³</option><option value="adet">adet</option></select></div>
+        <div class="form-alan"><label>Birim Fiyat <span style="color:var(--soluk);font-weight:400;text-transform:none">· KDV hariç</span></label>
+          <input id="yfkFiyat" type="number" step="0.01" data-buyuk-harf="hayir"></div>
+      </div>
+      <button class="blok-btn" onclick="yfKalemEkle()" style="margin-bottom:10px">+ Kalemi ekle</button>
+      <div id="yfKalemListe"></div>
+
+      <div id="yfOzet" class="tp-ozet" style="margin-top:12px;display:none"></div>
+    </div>
+    <div class="modal-alt">
+      <button class="iptal-btn" onclick="yeniFaturaKapat()">Vazgeç</button>
+      <button class="btn-yeni" id="yfKaydet" onclick="yeniFaturaKaydet()" disabled>Taslak Olarak Oluştur</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ═══ DOĞRUDAN (PROFORMASIZ) FATURA ═══════════════════════════════
+   Yurt içi satışta proforma kesilmiyor; fatura doğrudan düzenlenir.
+
+   MİMARİ NOT: Bu form faturayı yalnızca TASLAK olarak oluşturur.
+   Cari borcu ve satış kaydı, fatura "Kesildi" yapıldığında
+   /api/fatura/<id>/durum akışında üretilir. Muhasebe mantığı tek
+   yerde kalsın diye burada TEKRARLANMADI.
+
+   FİYAT: Birim fiyatlar KDV HARİÇ girilir; KDV üzerine eklenir.
+   TEVKİFAT: KDV'nin beyan edilen kesridir, toplamı değiştirmez —
+   alıcının beyan edeceği kısmı gösterir. */
+
+let YF_KALEMLER = [];
+
+async function yeniFaturaAc() {
+  YF_KALEMLER = [];
+  document.getElementById('yfModal').classList.add('acik');
+  const bugun = new Date().toISOString().slice(0, 10);
+  document.getElementById('yfTarih').value = bugun;
+  document.getElementById('yfVade').value = '';
+  ['yfNo', 'yfOdeme', 'yfkCins', 'yfkMiktar', 'yfkFiyat'].forEach(i => {
+    const el = document.getElementById(i); if (el) el.value = '';
+  });
+  document.getElementById('yfTevkifat').value = '';
+  await yfCarileriYukle();
+  yfKalemCiz();
+}
+
+function yeniFaturaKapat() {
+  document.getElementById('yfModal').classList.remove('acik');
+}
+
+async function yfCarileriYukle() {
+  const sec = document.getElementById('yfMusteri');
+  if (sec.dataset.dolu === '1') return;
+  try {
+    const d = await api('/api/cari?per_page=500');
+    sec.innerHTML = '<option value="">— seçin —</option>' +
+      (d.data || []).map(c => `<option value="${kacar(c.unvan)}">${kacar(c.unvan)}</option>`).join('');
+    sec.dataset.dolu = '1';
+  } catch (e) { /* api() hatayı gösterir */ }
+}
+
+function yfKalemEkle() {
+  const cins = document.getElementById('yfkCins').value.trim();
+  const miktar = parseFloat(document.getElementById('yfkMiktar').value) || 0;
+  const fiyat = parseFloat(document.getElementById('yfkFiyat').value) || 0;
+  if (!cins || miktar <= 0) { bildir('Cins ve miktar zorunlu', true); return; }
+  YF_KALEMLER.push({
+    cins: cins, miktar: miktar,
+    birim: document.getElementById('yfkBirim').value,
+    birim_fiyat: fiyat, toplam_fiyat: miktar * fiyat,
+  });
+  ['yfkCins', 'yfkMiktar', 'yfkFiyat'].forEach(i => document.getElementById(i).value = '');
+  yfKalemCiz();
+}
+
+function yfKalemSil(i) { YF_KALEMLER.splice(i, 1); yfKalemCiz(); }
+
+function yfKalemCiz() {
+  const kok = document.getElementById('yfKalemListe');
+  if (!YF_KALEMLER.length) {
+    kok.innerHTML = '<div style="padding:10px;color:var(--soluk);font-size:.84rem">Henüz kalem eklenmedi.</div>';
+  } else {
+    kok.innerHTML = `<div class="tablo-kutu"><table style="width:100%;font-size:.84rem">
+      <thead><tr><th style="text-align:left">Cins</th><th class="sag">Miktar</th>
+      <th>Birim</th><th class="sag">Birim Fiyat</th><th class="sag">Tutar</th><th></th></tr></thead>
+      <tbody>${YF_KALEMLER.map((k, i) => `<tr>
+        <td>${kacar(k.cins)}</td>
+        <td class="sag mono">${k.miktar}</td>
+        <td>${kacar(k.birim)}</td>
+        <td class="sag mono">${k.birim_fiyat.toLocaleString('tr-TR', {minimumFractionDigits: 2})}</td>
+        <td class="sag mono">${k.toplam_fiyat.toLocaleString('tr-TR', {minimumFractionDigits: 2})}</td>
+        <td class="sag"><button class="sil-btn" onclick="yfKalemSil(${i})" title="Sil">×</button></td>
+      </tr>`).join('')}</tbody></table></div>`;
+  }
+  yfHesapla();
+}
+
+function yfHesapla() {
+  const tipi = document.getElementById('yfSatisTipi').value;
+  const yurtici = tipi === 'yurtici';
+  // KDV yalnızca yurt içi satışta uygulanır; backend de aynısını zorlar.
+  document.getElementById('yfKdvAlanlari').style.opacity = yurtici ? '1' : '.45';
+  document.getElementById('yfKdv').disabled = !yurtici;
+  document.getElementById('yfTevkifat').disabled = !yurtici;
+
+  const ara = YF_KALEMLER.reduce((t, k) => t + (k.toplam_fiyat || 0), 0);
+  const oran = yurtici ? (parseFloat(document.getElementById('yfKdv').value) || 0) : 0;
+  const kdv = ara * oran / 100;
+  const tv = yurtici ? document.getElementById('yfTevkifat').value : '';
+  let tevkifat = 0;
+  if (tv && tv.includes('/')) {
+    const [pay, payda] = tv.split('/').map(Number);
+    if (payda) tevkifat = kdv * pay / payda;
+  }
+  const dov = document.getElementById('yfDoviz').value;
+  const bicim = v => v.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  const ozet = document.getElementById('yfOzet');
+  ozet.style.display = YF_KALEMLER.length ? '' : 'none';
+  ozet.innerHTML = `
+    <div><b>${bicim(ara)} ${dov}</b><small>ara toplam (KDV hariç)</small></div>
+    <div><b>${bicim(kdv)} ${dov}</b><small>KDV %${oran}</small></div>
+    <div><b>${bicim(tevkifat)} ${dov}</b><small>tevkifat${tv ? ' ' + tv : ''} — alıcı beyan eder</small></div>
+    <div><b>${bicim(ara + kdv)} ${dov}</b><small>GENEL TOPLAM</small></div>`;
+
+  document.getElementById('yfKaydet').disabled =
+    !YF_KALEMLER.length || !document.getElementById('yfMusteri').value;
+}
+
+async function yeniFaturaKaydet() {
+  const musteri = document.getElementById('yfMusteri').value;
+  if (!musteri) { bildir('Müşteri seçin', true); return; }
+  if (!YF_KALEMLER.length) { bildir('En az bir kalem ekleyin', true); return; }
+
+  const btn = document.getElementById('yfKaydet');
+  btn.disabled = true; btn.textContent = 'Oluşturuluyor…';
+  try {
+    const d = await api('/api/fatura', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        musteri: musteri,
+        satis_tipi: document.getElementById('yfSatisTipi').value,
+        doviz: document.getElementById('yfDoviz').value,
+        fatura_no: document.getElementById('yfNo').value.trim(),
+        fatura_tarihi: document.getElementById('yfTarih').value || null,
+        vade_tarihi: document.getElementById('yfVade').value || null,
+        kdv_oran: parseFloat(document.getElementById('yfKdv').value) || 0,
+        tevkifat_oran: document.getElementById('yfTevkifat').value || '',
+        odeme_sekli: document.getElementById('yfOdeme').value.trim() || null,
+        kalemler: YF_KALEMLER,
+      })
+    });
+    bildir(d.mesaj || 'Fatura taslak olarak oluşturuldu');
+    yeniFaturaKapat();
+    // NOT: Bu sayfada listeyi yükleyen fonksiyonun adı yukle() —
+    // diğer modüllerdeki listeyiCiz() değil. Yanlış ad sessizce
+    // atlandığı için fatura oluşuyor ama liste yenilenmiyordu.
+    if (typeof yukle === 'function') await yukle();
+  } catch (e) { /* api() hatayı gösterir */ }
+  btn.disabled = false; btn.textContent = 'Taslak Olarak Oluştur';
+}
+
+/* ═══ FATURALAR ═══
+   /api/fatura                    → liste
+   PUT  /api/fatura/<id>          → fatura_no, vade_tarihi (kesmeden ÖNCE gerekli)
+   POST /api/fatura/<id>/durum    → {durum} — Kesildi için fatura_no ZORUNLU
+   POST /api/fatura/<id>/tahsilat → {tutar, kasa_id, tahsilat_tipi, evrak_no, aciklama}
+   GET  /api/fatura/<id>/tahsilatlar → {fatura_toplam, tahsil_edilen, kalan, tahsilatlar[]}
+   Backend kuralı: tahsilat için fatura önce "Kesildi" olmalı. */
+
+const AD = { 'Taslak':'Taslak', 'Kesildi':'Kesildi', 'Kismi Tahsil':'Kısmi Tahsil',
+             'Tahsil Edildi':'Tahsil Edildi', 'Iptal':'İptal' };
+const RZ = { 'Taslak':'rz-gri', 'Kesildi':'rz-kehribar', 'Kismi Tahsil':'rz-mavi',
+             'Tahsil Edildi':'rz-yesil', 'Iptal':'rz-kirmizi' };
+const RENK = { 'Taslak':'--cizgi-koyu', 'Kesildi':'--kehribar', 'Kismi Tahsil':'--mavi',
+               'Tahsil Edildi':'--verde', 'Iptal':'--kirmizi' };
+
+let TUM = [], DURUM = '', ARA = '', KASALAR = [], SECILI = null, TAHSILAT = {};
+
+async function yukle() {
+  try {
+    const d = await api('/api/fatura');
+    TUM = Array.isArray(d) ? d : (d.data || []);
+  } catch (e) {
+    document.getElementById('govde').innerHTML = '<tr><td colspan="6" class="bos">Fatura verisi alınamadı.</td></tr>';
+    return;
+  }
+  // Tahsilat durumlarını topluca çek (kalan tutarlar için)
+  await Promise.all(TUM.filter(f => f.durum !== 'Taslak' && f.durum !== 'Iptal').map(async f => {
+    try {
+      const t = await api(`/api/fatura/${encodeURIComponent(f.id)}/tahsilatlar`);
+      f._tahsil = t.tahsil_edilen || 0;
+      f._kalan = t.kalan != null ? t.kalan : (f.toplam || 0);
+    } catch (e) { f._tahsil = 0; f._kalan = f.toplam || 0; }
+  }));
+  kpiCiz(); ciz();
+}
+
+function kpiCiz() {
+  const taslak = TUM.filter(f => f.durum === 'Taslak');
+  const acik = TUM.filter(f => ['Kesildi', 'Kismi Tahsil'].includes(f.durum));
+  const tahsilEdilen = TUM.reduce((a, f) => a + (f._tahsil || 0), 0);
+  document.getElementById('kTaslak').textContent = taslak.length;
+  document.getElementById('kTaslakEk').textContent = para(taslak.reduce((a, f) => a + (f.toplam || 0), 0)) + ' · fatura no bekliyor';
+  document.getElementById('kBekleyen').innerHTML = para(acik.reduce((a, f) => a + (f._kalan || 0), 0)).replace(' $', '<small>$</small>');
+  document.getElementById('kBekleyenEk').textContent = acik.length + ' açık fatura';
+  document.getElementById('kTahsil').innerHTML = para(tahsilEdilen).replace(' $', '<small>$</small>');
+  document.getElementById('kTahsilEk').textContent = TUM.filter(f => f.durum === 'Tahsil Edildi').length + ' fatura kapandı';
+}
+
+function ciz() {
+  const s = ARA.toLocaleLowerCase('tr');
+  let liste = TUM.filter(f =>
+    (!DURUM || f.durum === DURUM) &&
+    (!s || [f.id, f.fatura_no, f.musteri, f.ettn].filter(Boolean).join(' ').toLocaleLowerCase('tr').includes(s)));
+  liste.sort((a, b) => (b.fatura_tarihi || '').localeCompare(a.fatura_tarihi || ''));
+
+  const g = document.getElementById('govde');
+  g.innerHTML = liste.length ? liste.map(f => {
+    const toplam = f.toplam || 0;
+    const tahsil = f._tahsil || 0;
+    const oran = toplam > 0 ? Math.min(100, tahsil / toplam * 100) : 0;
+    const gecikmis = f.vade_tarihi && (f._kalan || 0) > 0 && gunFarki(f.vade_tarihi) > 0;
+    return `
+    <tr style="border-left-color:var(${gecikmis ? '--kirmizi' : RENK[f.durum] || '--cizgi-koyu'})" onclick="detayAc('${kacar(f.id)}')">
+      <td class="mono">${kacar(f.fatura_no || '—')}${f.fatura_tipi === 'transit' ? '<span class="tipi-rozet transit">TRANSİT</span>' : f.fatura_tipi === 'teklif' ? '<span class="tipi-rozet teklif">TEKLİF</span>' : ''}${f.ettn ? `<span title="ETTN kayıtlı: ${kacar(f.ettn)}" style="margin-left:5px;color:var(--verde);font-weight:700">ⓔ</span>` : ''}<div class="ikincil">${kacar(f.id)}</div></td>
+      <td><strong>${kacar(f.musteri || '—')}</strong></td>
+      <td><span class="rozet ${RZ[f.durum] || 'rz-gri'}">${kacar(AD[f.durum] || f.durum)}</span></td>
+      <td class="sag mono" style="font-weight:600">${para(toplam, f.doviz)}</td>
+      <td class="sag">
+        ${f.durum === 'Taslak' ? '<span style="color:var(--soluk)">—</span>' : `
+          <div class="mono" style="font-size:.82rem">${para(tahsil, f.doviz)}${(f._kalan || 0) > 0 ? ' / ' + para(toplam, f.doviz) : ''}</div>
+          <div class="ilerleme"><i style="width:${oran.toFixed(0)}%"></i></div>`}
+      </td>
+      <td class="sag mono" style="font-size:.82rem;${gecikmis ? 'color:var(--kirmizi);font-weight:600' : 'color:var(--soluk)'}">
+        ${f.vade_tarihi ? (gecikmis ? '⚠ ' : '') + kacar(f.vade_tarihi) : '—'}
+      </td>
+    </tr>`;
+  }).join('') : '<tr><td colspan="6" class="bos">Fatura yok.</td></tr>';
+}
+
+/* ── Çekmece ── */
+async function detayAc(id) {
+  const f = TUM.find(x => x.id === id);
+  if (!f) return;
+  SECILI = f;
+  cekmeceAc(kacar(f.musteri || id), `${f.fatura_no || f.id} · ${AD[f.durum] || f.durum}`,
+    '<div class="yukleniyor">Yükleniyor…</div>', '');
+
+  let t = { tahsilatlar: [], tahsil_edilen: 0, kalan: f.toplam || 0 };
+  if (f.durum !== 'Taslak') {
+    try { t = await api(`/api/fatura/${encodeURIComponent(id)}/tahsilatlar`); } catch (e) { /* */ }
+  }
+  TAHSILAT = t;
+
+  const alan = (l, v, mono) => `<div class="alan"><label>${l}</label><div class="${mono ? 'mono' : ''}">${v || '—'}</div></div>`;
+  const govde = `
+    <div class="alan-grid">
+      ${alan('Toplam', para(f.toplam, f.doviz), true)}
+      ${alan('Tahsil Edilen', para(t.tahsil_edilen, f.doviz), true)}
+      ${(t.avans_mahsup || 0) > 0 ? alan('Avans Mahsubu', `<span style="color:var(--verde)">${para(t.avans_mahsup, f.doviz)}</span>`, true) : ''}
+      ${(t.avans_acik || 0) > 0 ? alan('Açık Avans', `<span style="color:var(--kehribar);font-weight:700">${para(t.avans_acik, t.avans_doviz || f.doviz)}</span>`, true) : ''}
+      ${alan('Kalan', `<span style="${(t.kalan || 0) > 0 ? 'color:var(--kirmizi);font-weight:700' : 'color:var(--verde);font-weight:700'}">${para(t.kalan, f.doviz)}</span>`)}
+      ${alan('Vade', kacar(f.vade_tarihi || '—'), true)}
+      ${alan('Fatura Tarihi', kacar(f.fatura_tarihi || '—'), true)}
+      ${alan('Ödeme', kacar(f.odeme_sekli || '—'))}
+      ${alan('Teslim', kacar(f.teslim_sekli || '—'))}
+      ${alan('Ülke', kacar(f.musteri_ulke || '—'))}
+      ${alan('Tip', kacar({ stoklu: 'Stoklu', transit: 'Transit', teklif: 'Teklif' }[f.fatura_tipi] || 'Stoklu'))}
+      ${alan('Kur Farkı', kacar(f.kur_farki_modu === 'cari' ? 'Cari modu' : 'Gider modu'))}
+      ${alan('Proforma', f.proforma_id ? kacar(f.proforma_id) : '—', true)}
+      ${alan('Sipariş', f.siparis_id ? kacar(f.siparis_id) : '—', true)}
+      ${alan('Senaryo', kacar(f.efatura_senaryo || '—'))}
+      ${alan('GİB Durumu', f.efatura_durum
+          ? `<span class="rozet ${f.efatura_durum === 'Kabul' ? 'rz-yesil' : f.efatura_durum === 'Red' ? 'rz-kirmizi' : 'rz-gri'}">${kacar(f.efatura_durum)}</span>`
+          : '—')}
+    </div>
+    ${f.ettn ? `<div class="alan" style="margin-bottom:14px">
+      <label>ETTN${f.efatura_tarihi ? ' · ' + kacar(f.efatura_tarihi) : ''}</label>
+      <div class="mono" style="font-size:.82rem;word-break:break-all">${kacar(f.ettn)}</div></div>` : ''}
+    ${(t.tahsilatlar || []).length ? `
+      <h4 style="font-size:.8rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--soluk);margin-bottom:6px">
+        Tahsilatlar · ${t.tahsilatlar.length}</h4>
+      <div style="margin-bottom:16px">
+        ${t.tahsilatlar.map(x => `
+          <div class="tahs-satir">
+            <span class="t">${kacar((x.tarih || '').slice(5))}</span>
+            <div>
+              <div>${kacar(x.tahsilat_tipi || x.tip || 'Tahsilat')}</div>
+              ${x.aciklama ? '<div style="color:var(--soluk);font-size:.75rem">' + kacar(x.aciklama.slice(0, 40)) + '</div>' : ''}
+            </div>
+            <span class="m">+${para(x.tutar, x.doviz || f.doviz)}${(x.doviz && x.doviz !== f.doviz)
+              ? `<div style="color:var(--soluk);font-size:.72rem;text-align:right">≈ ${para(x.esdeger, f.doviz)}</div>` : ''}</span>
+          </div>`).join('')}
+      </div>` : ''}`;
+
+  const eylem = [];
+  if (f.durum === 'Taslak' && yazabilir('fatura'))
+    eylem.push(`<button class="blok-btn birincil" onclick="kesAc('${kacar(id)}')">Fatura no gir & kes</button>`);
+  if (['Kesildi', 'Kismi Tahsil'].includes(f.durum) && (t.kalan || 0) > 0 && yazabilir('fatura'))
+    eylem.push(`<button class="blok-btn birincil" onclick="tahAc('${kacar(id)}')">Tahsilat gir</button>`);
+  // AM1: siparişte mahsup bekleyen avans varsa tek tıkla faturaya işlenir
+  if ((t.avans_acik || 0) > 0 && ['Kesildi', 'Kismi Tahsil'].includes(f.durum)
+      && (t.kalan || 0) > 0 && yazabilir('fatura'))
+    eylem.push(`<button class="blok-btn birincil" onclick="avansMahsupEt('${kacar(id)}')">Avansı mahsup et · ${para(Math.min(t.avans_acik, t.kalan), t.avans_doviz || f.doviz)}</button>`);
+  if ((t.avans_mahsup || 0) > 0 && f.durum !== 'Iptal' && yazabilir('fatura'))
+    eylem.push(`<button class="blok-btn" onclick="avansMahsupGeriAl('${kacar(id)}')">Avans mahsubunu geri al</button>`);
+  if (f.durum !== 'Iptal' && yazabilir('fatura'))
+    eylem.push(`<button class="blok-btn" onclick="duzAc('${kacar(id)}')">Bilgileri düzenle</button>`);
+  // F6: Taslak faturanın ETTN'i olamaz — GİB'e gitmemiştir.
+  if (f.durum !== 'Taslak' && yazabilir('fatura'))
+    eylem.push(`<button class="blok-btn" onclick="ettnAc('${kacar(id)}')">${f.ettn ? 'e-Fatura bilgileri' : 'ETTN gir'}</button>`);
+  if (f.proforma_id)
+    eylem.push(`<button class="blok-btn" onclick="window.open('/api/proforma/${encodeURIComponent(f.proforma_id)}/html?mod=ci','_blank')">Commercial Inv.</button>`);
+  if (f.durum === 'Taslak' && yazabilir('fatura'))
+    eylem.push(`<button class="blok-btn" style="color:var(--kirmizi)" onclick="faturaSil('${kacar(id)}')">Sil</button>`);
+  // İptal: kesilmiş faturalar iptal edilebilir (tahsilat varsa backend engeller, önce tahsilatı geri al)
+  if (['Kesildi', 'Kismi Tahsil', 'Tahsil Edildi'].includes(f.durum) && yazabilir('fatura'))
+    eylem.push(`<button class="blok-btn" style="color:var(--kirmizi)" onclick="faturaIptal('${kacar(id)}')">Faturayı iptal et</button>`);
+  eylem.push(`<button class="blok-btn" onclick="cekmeceKapat()">Kapat</button>`);
+
+  cekmeceAc(kacar(f.musteri || id), `${f.fatura_no || f.id} · ${AD[f.durum] || f.durum}`, govde, eylem.join(''));
+}
+
+/* DELETE /api/fatura/<id> — sadece taslak faturalar silinebilir */
+async function faturaSil(id) {
+  if (!await onayla('Taslak fatura silinsin mi?', { tehlike: true })) return;
+  try {
+    const d = await api(`/api/fatura/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    bildir(d.mesaj || 'Fatura silindi');
+    cekmeceKapat(); await yukle();
+  } catch (e) { /* */ }
+}
+
+/* Faturayı iptal et — cariye işlenen borç ve satış kaydı geri alınır.
+   Tahsilatı olan fatura iptal edilemez (backend engeller). */
+async function faturaIptal(id) {
+  if (!await onayla('Fatura iptal edilsin mi?\n\nCariye işlenen borç ve satış kaydı geri alınır. Bağlı sipariş/proforma durumu da geri döner. Bu işlem geri alınamaz.', { tehlike: true })) return;
+  try {
+    const d = await api(`/api/fatura/${encodeURIComponent(id)}/durum`, {
+      method: 'POST', body: JSON.stringify({ durum: 'Iptal' })
+    });
+    bildir(d.mesaj || 'Fatura iptal edildi');
+    cekmeceKapat(); await yukle();
+  } catch (e) { /* tahsilat_var vb. hatalar api() içinde kullanıcıya gösterilir */ }
+}
+
+/* ── AM1: avans mahsubu ── */
+async function avansMahsupEt(id) {
+  try {
+    const d = await api(`/api/fatura/${encodeURIComponent(id)}/avans_mahsup`, { method: 'POST' });
+    bildir(d.mesaj || 'Avans faturaya mahsup edildi');
+    cekmeceKapat(); await yukle();
+  } catch (e) { /* api() bildiriyor */ }
+}
+
+async function avansMahsupGeriAl(id) {
+  if (!await onayla('Avans mahsubu geri alınsın mı?\n\nAvans bağlı olduğu siparişe döner, fatura yeniden açık görünür.')) return;
+  try {
+    const d = await api(`/api/fatura/${encodeURIComponent(id)}/avans_mahsup`, { method: 'DELETE' });
+    bildir(d.mesaj || 'Mahsup geri alındı');
+    cekmeceKapat(); await yukle();
+  } catch (e) { /* */ }
+}
+
+/* ── Fatura kes ── */
+function kesAc(id) {
+  SECILI = TUM.find(x => x.id === id);
+  if (!SECILI) return;
+  document.getElementById('kesAlt').textContent = `${SECILI.musteri} · ${para(SECILI.toplam, SECILI.doviz)}`;
+  document.getElementById('kNo').value = SECILI.fatura_no || '';
+  document.getElementById('kVade').value = SECILI.vade_tarihi || '';
+  document.getElementById('kesModal').classList.add('acik');
+  kesTlGoster(SECILI);
+  kesAvansGoster(SECILI);
+}
+
+/* AM1 — siparişteki açık avans kesimde faturaya mahsup edilir.
+   Kullanıcı "Kes" demeden önce ödenecek tutarı görmeli; sürpriz
+   olmasın diye burada yazıyoruz. */
+async function kesAvansGoster(f) {
+  const kutu = document.getElementById('kAvans');
+  if (!kutu) return;
+  kutu.innerHTML = '';
+  if (!f.siparis_id) return;
+  try {
+    const a = await api(`/api/siparis/${encodeURIComponent(f.siparis_id)}/avans_bakiyesi`);
+    const avans = Number(a && a.avans) || 0;
+    if (!(avans > 0) || (a.yon && a.yon !== 'alinan')) return;
+    const dv = a.doviz || f.doviz || 'USD';
+    const toplam = Number(f.toplam) || 0;
+    const mahsup = Math.min(avans, toplam);
+    const kalan = Math.max(0, toplam - mahsup);
+    const ayni = (dv || '').toUpperCase() === (f.doviz || 'USD').toUpperCase();
+    kutu.innerHTML = ayni
+      ? `<div style="background:var(--notr-bg);border-radius:var(--r-kucuk);padding:9px 12px">
+           Bu siparişte <b>${para(avans, dv)}</b> avans var — kesildiğinde faturaya mahsup edilecek.<br>
+           <span style="color:var(--soluk)">Fatura ${para(toplam, f.doviz)} · mahsup ${para(mahsup, dv)} ·
+           <b>ödenecek ${para(kalan, f.doviz)}</b></span></div>`
+      : `<div class="not" style="background:var(--kehribar-bg);color:var(--kehribar)">
+           Siparişteki ${para(avans, dv)} avans fatura dövizinden (${f.doviz}) farklı —
+           otomatik mahsup edilmeyecek, kestikten sonra elle girin.</div>`;
+  } catch (e) { /* avans bilgisi alınamadıysa sessiz geç */ }
+}
+
+/* FK1: sunucu fatura kesilirken FATURA TARİHİNİN TCMB döviz alış
+   kurunu kullanır (o gün kur yoksa bir önceki iş günü). Burada AYNI
+   kur gösterilir — pencere ile kayıt birbirini tutsun. */
+async function kesTlGoster(f) {
+  const kutu = document.getElementById('kTl');
+  if (!kutu) return;
+  const dv = (f.doviz || 'USD').toUpperCase();
+  if (dv === 'TRY') { kutu.innerHTML = ''; return; }
+  kutu.innerHTML = '<span style="color:var(--soluk)">Kur alınıyor…</span>';
+  const trT = t => t ? t.split('-').reverse().join('.') : '';
+  const k4 = v => Number(v).toLocaleString('tr-TR', { minimumFractionDigits: 4, maximumFractionDigits: 4 });
+  const ft = f.fatura_tarihi || new Date().toISOString().slice(0, 10);
+  // FK2: faturaya sözleşme kuru girildiyse kesim o kurdan yapılır —
+  // pencere de TCMB'yi değil onu göstermeli.
+  const ozel = Number(f.kur_ozel) || 0;
+  if (ozel > 0) {
+    const tlo = (Number(f.toplam) || 0) * ozel;
+    kutu.innerHTML = `<div style="background:var(--notr-bg);border-radius:var(--r-kucuk);padding:9px 12px">
+      Cariye işlenecek TL karşılığı: <b class="mono">${tlo.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺</b><br>
+      <span style="color:var(--soluk)">1 ${dv} = ${k4(ozel)} ₺ · sözleşme kuru (elle girildi) · TCMB kuru kullanılmaz</span></div>`;
+    return;
+  }
+  try {
+    const g = await api(`/api/doviz_kur?doviz=${dv}&tarih=${encodeURIComponent(ft)}`);
+    const kur = Number(g && g.alis) || 0;
+    if (!kur) {
+      kutu.innerHTML = `<div class="not" style="background:var(--kirmizi-bg);color:var(--kirmizi)">${trT(ft)} tarihli ${dv} kuru bulunamadı — fatura kesilemez. Kur arşivini güncelleyin.</div>`;
+      return;
+    }
+    const tl = (Number(f.toplam) || 0) * kur;
+    kutu.innerHTML = `<div style="background:var(--notr-bg);border-radius:var(--r-kucuk);padding:9px 12px">
+      Cariye işlenecek TL karşılığı: <b class="mono">${tl.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺</b><br>
+      <span style="color:var(--soluk)">1 ${dv} = ${k4(kur)} ₺ · TCMB döviz alış · fatura tarihi ${trT(ft)}${
+        g.tarih && g.tarih !== ft ? ` (kur ${trT(g.tarih)} tarihli — o gün yayımlanmamış)` : ''}</span></div>`;
+  } catch (e) { kutu.innerHTML = ''; }
+}
+function kesKapat() { document.getElementById('kesModal').classList.remove('acik'); }
+
+async function faturaKes() {
+  const no = document.getElementById('kNo').value.trim();
+  if (!no) { bildir('Fatura no zorunlu.', true); return; }
+  const vade = document.getElementById('kVade').value;
+  const btn = document.getElementById('kKaydet');
+  btn.disabled = true; btn.textContent = 'Kesiliyor…';
+  try {
+    // 1) Fatura no + vade yaz
+    await api(`/api/fatura/${encodeURIComponent(SECILI.id)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ fatura_no: no, vade_tarihi: vade || null })
+    });
+    // 2) Durumu Kesildi yap (backend fatura_no'yu zorunlu tutar)
+    const d = await api(`/api/fatura/${encodeURIComponent(SECILI.id)}/durum`, {
+      method: 'POST', body: JSON.stringify({ durum: 'Kesildi' })
+    });
+    bildir(d.mesaj || 'Fatura kesildi · ' + no);
+    kesKapat(); cekmeceKapat(); await yukle();
+  } catch (e) { /* */ }
+  finally { btn.disabled = false; btn.textContent = 'Kes'; }
+}
+
+/* ── Fatura bilgileri düzenle ── */
+const ODEME_VARSAYILAN = ['Pesin', '%30 Avans %70 Yukleme Oncesi', '%50 Avans %50 Yukleme Oncesi',
+                          'Akreditif (L/C)', 'Mal Mukabili', 'Vesaik Mukabili'];
+const TESLIM_VARSAYILAN = ['FOB', 'CIF', 'CFR', 'EXW', 'DAP'];
+let LOOKUP_ODEME = null, LOOKUP_TESLIM = null;
+
+async function lookupYukle() {
+  if (LOOKUP_ODEME) return;
+  try {
+    const [o, t] = await Promise.all([api('/api/lookup/odeme'), api('/api/lookup/teslim')]);
+    LOOKUP_ODEME = (Array.isArray(o) ? o : (o.data || [])).map(x => x.deger || x).filter(Boolean);
+    LOOKUP_TESLIM = (Array.isArray(t) ? t : (t.data || [])).map(x => x.deger || x).filter(Boolean);
+  } catch (e) { /* lookup yoksa varsayılanlar */ }
+  if (!LOOKUP_ODEME || !LOOKUP_ODEME.length) LOOKUP_ODEME = ODEME_VARSAYILAN;
+  if (!LOOKUP_TESLIM || !LOOKUP_TESLIM.length) LOOKUP_TESLIM = TESLIM_VARSAYILAN;
+}
+
+function secenekDoldur(el, liste, secili) {
+  const s = secili || '';
+  const hepsi = s && !liste.includes(s) ? [s, ...liste] : liste;
+  el.innerHTML = '<option value="">— Seçin —</option>' +
+    hepsi.map(x => `<option value="${kacar(x)}"${x === s ? ' selected' : ''}>${kacar(x)}</option>`).join('');
+}
+
+/* ── FT1/FK2 — tutar ve sözleşme kuru ──────────────────────────────
+   DUZ_F      : düzenlenen faturanın son hali (kalemleriyle)
+   DUZ_KALEM  : düzenlenebilir kalem kopyası
+   DUZ_DURUM  : neyin elle değiştirildiği — kaydederken YALNIZCA
+                değişeni göndeririz. Her kaydetmede kalem toplamını
+                göndermek, proformadan gelen İSKONTOLU faturanın
+                matrahını sessizce iskontosuz hale getirirdi. */
+let DUZ_F = null, DUZ_KALEM = [], DUZ_DURUM = { kalem: false, matrah: false };
+
+function duzKalemCiz() {
+  const kutu = document.getElementById('dKalemKutu');
+  const govde = document.getElementById('dKalemGovde');
+  if (!DUZ_KALEM.length) { kutu.style.display = 'none'; govde.innerHTML = ''; return; }
+  kutu.style.display = '';
+  const ad = k => [k.cins, k.ozellik, k.olcu || [k.boy, k.yukseklik, k.kalinlik].filter(Boolean).join('×')]
+    .filter(Boolean).join(' · ') || 'Kalem';
+  govde.innerHTML = DUZ_KALEM.map((k, i) => `
+    <tr style="border-top:1px solid var(--cizgi)">
+      <td style="padding:4px">${kacar(ad(k))}${k.birim ? `<span style="color:var(--soluk)"> (${kacar(k.birim)})</span>` : ''}</td>
+      <td style="padding:4px"><input type="number" step="0.01" value="${Number(k.miktar) || 0}"
+          oninput="duzKalemDegisti(${i}, 'miktar', this.value)" style="width:100%;padding:3px 5px;font-size:.78rem"></td>
+      <td style="padding:4px"><input type="number" step="0.01" value="${Number(k.birim_fiyat) || 0}"
+          oninput="duzKalemDegisti(${i}, 'birim_fiyat', this.value)" style="width:100%;padding:3px 5px;font-size:.78rem"></td>
+      <td style="padding:4px;text-align:right" class="mono" id="dKalemTut${i}">${(Number(k.toplam_fiyat) || 0).toFixed(2)}</td>
+    </tr>`).join('');
+}
+
+function duzKalemDegisti(i, alan, deger) {
+  const k = DUZ_KALEM[i];
+  if (!k) return;
+  k[alan] = parseFloat(deger) || 0;
+  k.toplam_fiyat = (Number(k.miktar) || 0) * (Number(k.birim_fiyat) || 0);
+  const h = document.getElementById('dKalemTut' + i);
+  if (h) h.textContent = k.toplam_fiyat.toFixed(2);
+  DUZ_DURUM.kalem = true; DUZ_DURUM.matrah = false;
+  document.getElementById('dMatrah').value =
+    DUZ_KALEM.reduce((a, x) => a + (Number(x.toplam_fiyat) || 0), 0).toFixed(2);
+  duzToplamCiz();
+}
+
+/* Matrah ELLE yazıldıysa kalem toplamı değil o geçerlidir —
+   iskontolu faturada kalemler iskontosuz kalır, matrah nettir. */
+function duzMatrahElle() { DUZ_DURUM.matrah = true; DUZ_DURUM.kalem = false; duzToplamCiz(); }
+
+function duzToplamCiz() {
+  const f = DUZ_F || {};
+  const dv = f.doviz || 'USD';
+  const matrah = parseFloat(document.getElementById('dMatrah').value) || 0;
+  const oran = (f.satis_tipi === 'yurtici') ? (parseFloat(document.getElementById('dKdv').value) || 0) : 0;
+  const kdv = matrah * oran / 100;
+  const toplam = matrah + kdv;
+  const kur = parseFloat(document.getElementById('dKur').value) || 0;
+  const s2 = v => v.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  let satir = `Matrah ${s2(matrah)}${oran ? ` + KDV ${s2(kdv)}` : ''} = <b>${s2(toplam)} ${kacar(dv)}</b>`;
+  if (dv !== 'TRY') {
+    satir += kur > 0
+      ? ` · sözleşme kuru ${kur.toLocaleString('tr-TR', { minimumFractionDigits: 4 })} → <b>${s2(toplam * kur)} ₺</b> cariye`
+      : ' · kur: fatura tarihinin TCMB döviz alışı';
+  }
+  document.getElementById('dToplamOzet').innerHTML = satir;
+}
+
+async function duzAc(id) {
+  SECILI = TUM.find(x => x.id === id);
+  if (!SECILI) return;
+  await lookupYukle();
+  let f = SECILI;
+  try { const d = await api(`/api/fatura/${encodeURIComponent(id)}`); if (d.fatura) f = { ...SECILI, ...d.fatura }; } catch (e) { /* */ }
+  DUZ_F = f;
+  DUZ_DURUM = { kalem: false, matrah: false };
+  DUZ_KALEM = (f.kalemler || []).map(k => ({ ...k }));
+  duzKalemCiz();
+  const matrah = Number(f.ara_toplam) || Number(f.toplam) || 0;
+  document.getElementById('dMatrah').value = matrah ? matrah.toFixed(2) : '';
+  document.getElementById('dKdv').value = Number(f.kdv_oran) || 0;
+  document.getElementById('dKdvAlan').style.display = (f.satis_tipi === 'yurtici') ? '' : 'none';
+  document.getElementById('dKurAlan').style.display = ((f.doviz || 'USD') === 'TRY') ? 'none' : '';
+  document.getElementById('dKur').value = Number(f.kur_ozel) || '';
+  // Uyarılar: kesilmiş fatura, iskontolu proforma, kalem/matrah farkı
+  const uyari = [];
+  if (f.durum !== 'Taslak')
+    uyari.push('Bu fatura kesilmiş — tutar değişirse cari hesap, kur ve kârlılık kayıtları da güncellenir.');
+  const kalemToplam = DUZ_KALEM.reduce((a, x) => a + (Number(x.toplam_fiyat) || 0), 0);
+  if (DUZ_KALEM.length && Math.abs(kalemToplam - matrah) > 0.02)
+    uyari.push(`Kalem toplamı (${kalemToplam.toFixed(2)}) matrahtan farklı — muhtemelen iskonto var. Kalemleri düzenlerseniz matrah kalem toplamına eşitlenir; iskontoyu korumak için yalnızca matrahı yazın.`);
+  if (f.proforma_id)
+    uyari.push('Commercial Invoice proformadan basılır; belgeyi de değiştirmek için proformayı güncelleyin.');
+  const uk = document.getElementById('dTutarUyari');
+  uk.style.display = uyari.length ? '' : 'none';
+  uk.innerHTML = uyari.map(x => kacar(x)).join('<br>');
+  duzToplamCiz();
+  document.getElementById('duzAlt').textContent = `${f.musteri || ''} · ${para(f.toplam, f.doviz)}`;
+  document.getElementById('dFNo').value = f.fatura_no || '';
+  // Listede olmayan bir tip (ör. doğrudan faturanın 'stoksuz'u) seçeneğe
+  // eklenir — aksi halde seçim boşalır ve kaydetmek tipi siler.
+  const dTipi = document.getElementById('dTipi');
+  dTipi.value = f.fatura_tipi || 'stoklu';
+  if (!dTipi.value) {
+    dTipi.insertAdjacentHTML('beforeend',
+      `<option value="${kacar(f.fatura_tipi)}">${kacar(f.fatura_tipi)}</option>`);
+    dTipi.value = f.fatura_tipi;
+  }
+  document.getElementById('dFTarih').value = f.fatura_tarihi || '';
+  document.getElementById('dVade').value = f.vade_tarihi || '';
+  secenekDoldur(document.getElementById('dOdeme'), LOOKUP_ODEME, f.odeme_sekli);
+  secenekDoldur(document.getElementById('dTeslim'), LOOKUP_TESLIM, f.teslim_sekli);
+  document.getElementById('dAdres').value = f.musteri_adres || '';
+  document.getElementById('dUlke').value = f.musteri_ulke || '';
+  document.getElementById('dKurFarki').value = f.kur_farki_modu || (f.doviz === 'TRY' ? 'cari' : 'gider');
+  document.getElementById('dAciklama').value = f.aciklama || '';
+  document.getElementById('duzModal').classList.add('acik');
+}
+function duzKapat() { document.getElementById('duzModal').classList.remove('acik'); }
+
+/* ── e-Fatura / ETTN (F6) ──────────────────────────────────────────
+   POST /api/fatura/<id>/ettn — e-fatura verisinin TEK kapısı.
+   Genel PUT bu alanları kabul etmez (doğrulama gerektiriyor). */
+const SENARYO_ONERI = { ihracat: 'IHRACAT', ihrac_kayitli: 'TEMELFATURA', yurtici: 'TEMELFATURA' };
+
+async function ettnAc(id) {
+  SECILI = TUM.find(x => x.id === id);
+  if (!SECILI) return;
+  let f = SECILI;
+  try { const d = await api(`/api/fatura/${encodeURIComponent(id)}`); if (d.fatura) f = { ...SECILI, ...d.fatura }; } catch (e) { /* */ }
+  document.getElementById('ettnAlt').textContent =
+    `${f.fatura_no || f.id} · ${f.musteri || ''}`;
+  document.getElementById('eEttn').value = f.ettn || '';
+  document.getElementById('eSenaryo').value =
+    f.efatura_senaryo || SENARYO_ONERI[f.satis_tipi] || '';
+  document.getElementById('eDurum').value = f.efatura_durum || '';
+  document.getElementById('eTarih').value = f.efatura_tarihi || '';
+  document.getElementById('ettnModal').classList.add('acik');
+}
+function ettnKapat() { document.getElementById('ettnModal').classList.remove('acik'); }
+
+async function ettnKaydet() {
+  const btn = document.getElementById('eKaydet');
+  btn.disabled = true; btn.textContent = 'Kaydediliyor…';
+  try {
+    const d = await api(`/api/fatura/${encodeURIComponent(SECILI.id)}/ettn`, {
+      method: 'POST', body: JSON.stringify({
+        ettn: document.getElementById('eEttn').value.trim(),
+        efatura_senaryo: document.getElementById('eSenaryo').value,
+        efatura_durum: document.getElementById('eDurum').value,
+        efatura_tarihi: document.getElementById('eTarih').value || null
+      })
+    });
+    bildir(d.mesaj || 'e-Fatura bilgileri kaydedildi');
+    ettnKapat(); cekmeceKapat(); await yukle();
+  } catch (e) { /* api() zaten bildiriyor */ }
+  finally { btn.disabled = false; btn.textContent = 'Kaydet'; }
+}
+
+async function duzKaydet() {
+  const btn = document.getElementById('dKaydet');
+  btn.disabled = true; btn.textContent = 'Kaydediliyor…';
+  try {
+    const govde = {
+        fatura_tipi: document.getElementById('dTipi').value,
+        fatura_tarihi: document.getElementById('dFTarih').value || null,
+        vade_tarihi: document.getElementById('dVade').value || null,
+        odeme_sekli: document.getElementById('dOdeme').value,
+        teslim_sekli: document.getElementById('dTeslim').value,
+        musteri_adres: document.getElementById('dAdres').value,
+        musteri_ulke: document.getElementById('dUlke').value,
+        kur_farki_modu: document.getElementById('dKurFarki').value,
+        aciklama: document.getElementById('dAciklama').value
+    };
+    const yeniNo = document.getElementById('dFNo').value.trim();
+    if (yeniNo) govde.fatura_no = yeniNo;  // boş no gönderme — mevcut no silinmesin
+
+    // ── FT1/FK2 — tutar ve kur: YALNIZCA değişen gönderilir ──
+    const f = DUZ_F || {};
+    const matrah = parseFloat(document.getElementById('dMatrah').value) || 0;
+    const oran = parseFloat(document.getElementById('dKdv').value) || 0;
+    const eskiMatrah = Number(f.ara_toplam) || Number(f.toplam) || 0;
+    if (DUZ_DURUM.kalem) govde.kalemler = DUZ_KALEM;
+    else if (DUZ_DURUM.matrah && Math.abs(matrah - eskiMatrah) > 0.005) govde.ara_toplam = matrah;
+    if (f.satis_tipi === 'yurtici' && Math.abs(oran - (Number(f.kdv_oran) || 0)) > 0.0001) govde.kdv_oran = oran;
+    if ((f.doviz || 'USD') !== 'TRY') {
+      const kur = parseFloat(document.getElementById('dKur').value) || 0;
+      if (Math.abs(kur - (Number(f.kur_ozel) || 0)) > 0.0000005) govde.kur = kur || null;
+    }
+    const d = await api(`/api/fatura/${encodeURIComponent(SECILI.id)}`, {
+      method: 'PUT', body: JSON.stringify(govde)
+    });
+    bildir(d.mesaj || 'Fatura güncellendi');
+    duzKapat(); cekmeceKapat(); await yukle();
+  } catch (e) { /* */ }
+  finally { btn.disabled = false; btn.textContent = 'Kaydet'; }
+}
+
+/* ── Tahsilat ── */
+async function tahAc(id) {
+  SECILI = TUM.find(x => x.id === id);
+  if (!SECILI) return;
+  if (!KASALAR.length) {
+    try { KASALAR = (await api('/api/kasa')).filter(k => !k.ana_kasa); } catch (e) { KASALAR = []; }
+  }
+  document.getElementById('tKasa').innerHTML = KASALAR.length
+    ? KASALAR.map(k => `<option value="${k.id}">${kasaEtiket(k)}</option>`).join('')
+    : '<option value="">— kasa yok —</option>';
+  document.getElementById('tahAlt').textContent =
+    `${SECILI.musteri} · ${SECILI.fatura_no || SECILI.id} · kalan ${para(TAHSILAT.kalan, SECILI.doviz)}`;
+  document.getElementById('tTutar').value = TAHSILAT.kalan || '';
+  document.getElementById('tEvrak').value = '';
+  document.getElementById('tAciklama').value = '';
+  // ÇAPRAZ DÖVİZ: ödeme dövizi seçenekleri (fatura dövizi varsayılan)
+  const fDoviz = SECILI.doviz || 'USD';
+  const dovizler = [...new Set([fDoviz, 'TRY', 'USD', 'EUR'])];
+  document.getElementById('tDoviz').innerHTML = dovizler.map(d =>
+    `<option value="${d}">${d}${d === fDoviz ? ' (fatura dövizi)' : ''}</option>`).join('');
+  document.getElementById('tDoviz').value = fDoviz;
+  document.getElementById('tKur').value = '';
+  TAH_KURLAR = {};
+  tahDovizDegisti();
+  document.getElementById('tahModal').classList.add('acik');
+}
+function tahKapat() { document.getElementById('tahModal').classList.remove('acik'); }
+
+/* ── Çapraz döviz: kur çek + canlı önizleme ── */
+let TAH_KURLAR = {};  // {USD: 47.0, ...} güncel TCMB
+async function tahKurGetir(dv) {
+  if (dv === 'TRY') return 1;
+  if (TAH_KURLAR[dv]) return TAH_KURLAR[dv];
+  try {
+    const k = await api(`/api/doviz_kur?doviz=${dv}`);
+    TAH_KURLAR[dv] = k.alis || k.efektif || k.satis || 0;
+  } catch (e) { TAH_KURLAR[dv] = 0; }
+  return TAH_KURLAR[dv];
+}
+async function tahDovizDegisti() {
+  const fDoviz = (SECILI && SECILI.doviz) || 'USD';
+  const sec = document.getElementById('tDoviz');
+  const cek = document.getElementById('tTip').value === 'cek';
+  if (cek && sec.value !== fDoviz) {
+    // Çek fatura dövizinde olmalı — dövizi geri al (rekürsiyon YOK, tek geçiş)
+    sec.value = fDoviz;
+    bildir('Çek tahsilatı fatura dövizinde olmalı.', true);
+  }
+  sec.disabled = cek;
+  const dv = sec.value || fDoviz;  // seçenek yoksa fatura dövizine düş
+  const capraz = dv !== fDoviz;
+  document.getElementById('tKurAlan').style.display = (capraz && dv !== 'TRY') ? '' : 'none';
+  if (capraz) { await tahKurGetir(dv); await tahKurGetir(fDoviz); }
+  tahOnizle();
+}
+function tahOnizle() {
+  const kutu = document.getElementById('tOnizle');
+  const fDoviz = (SECILI && SECILI.doviz) || 'USD';
+  const dv = document.getElementById('tDoviz').value || fDoviz;
+  const tutar = parseFloat(document.getElementById('tTutar').value) || 0;
+  if (dv === fDoviz || tutar <= 0) { kutu.style.display = 'none'; return; }
+  const manuel = parseFloat(document.getElementById('tKur').value) || 0;
+  const odemeKur = dv === 'TRY' ? 1 : (manuel > 0 ? manuel : (TAH_KURLAR[dv] || 0));
+  const fKur = fDoviz === 'TRY' ? 1 : (TAH_KURLAR[fDoviz] || 0);
+  if (!odemeKur || !fKur) {
+    kutu.style.display = ''; kutu.textContent = 'Kur bekleniyor… (bulunamazsa İşlem Kuru alanına elle girin)';
+    return;
+  }
+  const esdeger = (tutar * odemeKur) / fKur;
+  const kalan = Math.max(0, (TAHSILAT.kalan || 0) - esdeger);
+  kutu.style.display = '';
+  kutu.innerHTML = `${para(tutar, dv)} ≈ <b>${para(esdeger, fDoviz)}</b>`
+    + ` · ${fDoviz} kuru ${fKur.toLocaleString('tr-TR', {minimumFractionDigits: 4})}`
+    + ` · kapatma sonrası kalan ≈ ${para(kalan, fDoviz)}`
+    + (esdeger > (TAHSILAT.kalan || 0) * 1.005 + 0.01 ? ' · <span style="color:var(--kirmizi)">kalanı aşıyor!</span>' : '');
+}
+
+async function tahsilatKaydet() {
+  const tutar = parseFloat(document.getElementById('tTutar').value);
+  if (!tutar || tutar <= 0) { bildir('Geçerli bir tutar gir.', true); return; }
+  const kasaId = document.getElementById('tKasa').value;
+  const btn = document.getElementById('tKaydet');
+  btn.disabled = true; btn.textContent = 'Kaydediliyor…';
+  try {
+    const odemeDoviz = document.getElementById('tDoviz').value;
+    const manuelKur = parseFloat(document.getElementById('tKur').value) || 0;
+    const d = await api(`/api/fatura/${encodeURIComponent(SECILI.id)}/tahsilat`, {
+      method: 'POST',
+      body: JSON.stringify({
+        tutar,
+        doviz: odemeDoviz,
+        kur: manuelKur > 0 ? manuelKur : null,
+        kasa_id: kasaId ? parseInt(kasaId) : null,
+        tahsilat_tipi: document.getElementById('tTip').value,
+        evrak_no: document.getElementById('tEvrak').value,
+        aciklama: document.getElementById('tAciklama').value
+      })
+    });
+    bildir(d.mesaj || 'Tahsilat kaydedildi · ' + para(tutar, odemeDoviz));
+    tahKapat(); cekmeceKapat(); await yukle();
+  } catch (e) { /* */ }
+  finally { btn.disabled = false; btn.textContent = 'Kaydet'; }
+}
+
+/* Filtreler */
+document.querySelectorAll('.cip').forEach(b => b.onclick = () => {
+  document.querySelectorAll('.cip').forEach(x => x.classList.remove('aktif'));
+  b.classList.add('aktif'); DURUM = b.dataset.d; ciz();
+});
+let araZaman;
+document.getElementById('ara').addEventListener('input', e => {
+  clearTimeout(araZaman);
+  araZaman = setTimeout(() => { ARA = e.target.value; ciz(); }, 200);
+});
+
+yukle();
+
+/* C360: cari çekmecesinden "+ Fatura" ile gelindi (?yeni_musteri=...).
+   `?yeni=1` kullanılmadı: base.html o parametreyi yeniAc() için ayırıyor.
+   Yeni fatura penceresi açılır, müşteri seçili gelir. Seçenekte yoksa
+   (ör. yetki süzgeci) seçilmez ve kullanıcı uyarılır — sessizce
+   başka müşteri seçili kalmasın. */
+(async function () {
+  const prm = new URLSearchParams(location.search);
+  const musteri = prm.get('yeni_musteri') || '';
+  if (!musteri) return;
+  history.replaceState({}, '', location.pathname);
+  await yeniFaturaAc();
+  const sec = document.getElementById('yfMusteri');
+  sec.value = musteri;
+  if (sec.value !== musteri) {
+    const es = [...sec.options].find(o =>
+      o.value.toLocaleUpperCase('tr') === musteri.toLocaleUpperCase('tr'));
+    if (es) sec.value = es.value;
+    else { sec.value = ''; bildir(`Müşteri listede bulunamadı: ${musteri}`, true); return; }
+  }
+  sec.dispatchEvent(new Event('change'));
+})();
+</script>
+{% endblock %}
